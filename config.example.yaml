@@ -1,0 +1,63 @@
+# ============================================================
+# PortBridge 配置文件示例（中转端 / server）
+#
+# 复制为 config.yaml 后按需修改：
+#   cp config.example.yaml config.yaml
+# 启动：
+#   ./portbridge -c config.yaml
+#
+# 所有字段均可用环境变量覆盖，命名规则 PORTBRIDGE_<大写字段名>，
+# 例如 PORTBRIDGE_ROLE / PORTBRIDGE_ADMIN_PORT / PORTBRIDGE_DSN。
+# ============================================================
+
+# 运行角色：server=中转端（公网），client=原站端（内网）
+role: server
+
+# 本端节点名，用于在 Web UI 中标识自己
+node_name: beijing-relay
+
+# ---------- 管理面（Web UI + REST API + 控制通道） ----------
+# 默认监听 0.0.0.0:13255，两端默认都用 13255
+admin_port: 13255
+# 如需单独指定监听地址，可显式覆盖（留空则自动使用 0.0.0.0:<admin_port>）
+admin_addr: ""
+# JWT 签名密钥，生产环境务必修改为随机强口令
+jwt_secret: "please-change-this-jwt-secret"
+
+# ---------- 数据面（裸 TCP 数据通道） ----------
+data_port: 13256
+data_addr: ""
+
+# ---------- 原站端专用（server 角色留空即可） ----------
+# 中转端管理面地址，例如 203.0.113.10:13255
+server_addr: ""
+# 中转端数据面地址，留空则用 server_addr 的主机 + data_port 自动推导
+server_data_addr: ""
+# 节点预共享密钥（由中转端生成）
+token: ""
+
+# ---------- 数据库 ----------
+# sqlite（默认）或 postgres
+db_driver: sqlite
+# sqlite 使用文件路径；postgres 使用连接串
+dsn: "data/portbridge.db"
+
+# ---------- TLS ----------
+# 启用后控制通道使用 wss，需同时提供证书与私钥
+tls_enabled: false
+tls_cert: ""
+tls_key: ""
+
+# 允许连接数据面的来源 CIDR 白名单，例如 ["203.0.113.0/24"]，留空表示不限制
+ip_whitelist: []
+
+# ---------- 运行参数 ----------
+# 心跳间隔（秒）
+heartbeat_sec: 10
+# 动态分配转发端口时可用的端口范围
+proxy_port_min: 6000
+proxy_port_max: 7000
+# 前端静态资源目录（相对路径相对于工作目录）
+web_dist_path: "web/dist"
+# 日志级别：debug | info | warn | error
+log_level: "info"

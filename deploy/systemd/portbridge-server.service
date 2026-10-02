@@ -1,0 +1,31 @@
+[Unit]
+Description=PortBridge Relay Server (中转端)
+Documentation=https://github.com/beibing173/portbridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=portbridge
+Group=portbridge
+WorkingDirectory=/opt/portbridge
+ExecStart=/opt/portbridge/portbridge -c /opt/portbridge/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+# 端口转发需要绑定较宽的端口范围，放开端口数上限
+LimitNPROC=65535
+
+# ---------- 安全加固 ----------
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/portbridge/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

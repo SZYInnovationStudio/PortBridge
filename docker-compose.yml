@@ -1,0 +1,69 @@
+# PortBridge 容器编排示例
+#
+# 中转端(server) 默认启动：
+#   docker compose up -d
+# 原站端(client) 使用 profile 启动（把 SERVER_ADDR / TOKEN 换成中转端生成的值）：
+#   docker compose --profile client up -d
+#
+# 说明：
+# - 两端使用同一个镜像，仅通过 PORTBRIDGE_ROLE 区分角色。
+# - 配置文件通过目录挂载，若目录为空则完全使用环境变量与内置默认值。
+
+services:
+  # ---------------- 中转端（公网服务器） ----------------
+  server:
+    build:
+      context: .
+      args:
+        VERSION: "0.1.0"
+    image: portbridge:latest
+    container_name: portbridge-server
+    restart: unless-stopped
+    environment:
+      PORTBRIDGE_ROLE: server
+      PORTBRIDGE_NODE_NAME: beijing-relay
+      PORTBRIDGE_ADMIN_PORT: "13255"
+      PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
+      PORTBRIDGE_DSN: "/app/data/portbridge.db"
+    volumes:
+      - ./deploy/data/server:/app/data
+      - ./deploy/config/server:/app/config:ro
+    ports:
+      - "13255:13255"   # 管理面：Web UI + REST + 控制通道
+      - "13256:13256"   # 数据面：裸 TCP 数据通道
+      # 下面按需映射实际使用的公网转发端口（需与规则中的监听端口一致）
+      - "8080:8080"
+      - "2222:2222/udp"
+    networks:
+      - portbridge
+
+  # ---------------- 原站端（内网机器） ----------------
+  # 启动前请在中转端创建节点，拿到节点名与一次性密钥，填入下面的环境变量。
+  client:
+    image: portbridge:latest
+    container_name: portbridge-client
+    restart: unless-stopped
+    profiles: ["client"]
+    depends_on:
+      - server
+    environment:
+      PORTBRIDGE_ROLE: client
+      PORTBRIDGE_NODE_NAME: ningbo-origin
+      # 中转端地址（管理面端口）与数据面地址，例如：
+      PORTBRIDGE_SERVER_ADDR: "relay.example.com:13255"
+      PORTBRIDGE_SERVER_DATA_ADDR: "relay.example.com:13256"
+      PORTBRIDGE_TOKEN: "replace-with-node-token"
+      PORTBRIDGE_ADMIN_PORT: "13255"
+      PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
+      PORTBRIDGE_DSN: "/app/data/portbridge.db"
+    volumes:
+      - ./deploy/data/client:/app/data
+      - ./deploy/config/client:/app/config:ro
+    ports:
+      - "13255:13255"   # 原站端本地管理界面
+    networks:
+      - portbridge
+
+networks:
+  portbridge:
+    driver: bridge

@@ -1,0 +1,54 @@
+# ============================================================
+# PortBridge 配置文件示例（原站端 / client）
+#
+# 复制为 config.yaml 后按需修改：
+#   cp config.client.example.yaml config.yaml
+# 启动：
+#   ./portbridge -c config.yaml
+#
+# 所有字段均可用环境变量覆盖，命名规则 PORTBRIDGE_<大写字段名>。
+# ============================================================
+
+# 运行角色：原站端
+role: client
+
+# 本端节点名，必须与中转端上创建的节点名一致
+node_name: ningbo-origin
+
+# ---------- 连接中转端 ----------
+# 中转端管理面地址，例如 203.0.113.10:13255 或 relay.example.com:13255
+server_addr: "203.0.113.10:13255"
+# 中转端数据面地址，留空则用 server_addr 的主机 + data_port 自动推导
+server_data_addr: ""
+# 节点预共享密钥：在中转端创建节点时生成的一次性密钥
+token: "replace-with-node-token"
+
+# ---------- 本地管理面（Web UI + REST API） ----------
+# 与中转端保持一致，默认 13255
+admin_port: 13255
+admin_addr: ""
+jwt_secret: "please-change-this-jwt-secret"
+
+# ---------- 数据面（通常无需修改） ----------
+data_port: 13256
+data_addr: ""
+
+# ---------- 数据库 ----------
+db_driver: sqlite
+dsn: "data/portbridge.db"
+
+# ---------- TLS ----------
+# 若中转端启用了 TLS，这里需要同步开启
+tls_enabled: false
+tls_cert: ""
+tls_key: ""
+
+# 来源 IP 白名单（原站端一般不需要配置）
+ip_whitelist: []
+
+# ---------- 运行参数 ----------
+heartbeat_sec: 10
+proxy_port_min: 6000
+proxy_port_max: 7000
+web_dist_path: "web/dist"
+log_level: "info"
