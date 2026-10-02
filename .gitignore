@@ -1,0 +1,35 @@
+# build output
+/bin/
+/dist/
+/build/
+*.exe
+*.test
+*.out
+
+# go
+/vendor/
+go.work
+go.work.sum
+
+# frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/*.local
+
+# runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# local config
+config.yaml
+!config.example.yaml
+
+# editor / os
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
