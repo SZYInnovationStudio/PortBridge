@@ -244,12 +244,9 @@ func (c *Client) applySync(report protocol.ProxyReport) {
 		if err != nil {
 			continue
 		}
-		// LWW：仅当远端版本更新时才覆盖本地
-		if spec.UpdatedAt > p.UpdatedAt.UnixMilli() {
+		// LWW：以配置版本号为准（UpdatedAt 会被 GORM 在每次保存时刷新，不能用于比较）
+		if spec.Version > p.Version {
 			apiutil.ApplySpecToProxy(spec, &p)
-			if spec.UpdatedAt > 0 {
-				p.UpdatedAt = time.UnixMilli(spec.UpdatedAt)
-			}
 			if err := c.db.Save(&p).Error; err != nil {
 				continue
 			}

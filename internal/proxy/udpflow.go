@@ -17,7 +17,8 @@ type UDPFlow struct {
 	addr   *net.UDPAddr
 	in     chan []byte
 	once   sync.Once
-	closed atomic.Bool
+	mu     sync.RWMutex // 保护 closed 与 in 的关闭/发送，避免 send on closed channel
+	closed bool
 	last   atomic.Int64 // 最后活跃时间（UnixNano）
 }
 
@@ -37,19 +38,22 @@ func (f *UDPFlow) IdleFor() time.Duration { return time.Since(time.Unix(0, f.las
 // Peer 返回对端地址
 func (f *UDPFlow) Peer() *net.UDPAddr { return f.addr }
 
-func (f *UDPFlow) LocalAddr() net.Addr                { return f.conn.LocalAddr() }
-func (f *UDPFlow) RemoteAddr() net.Addr               { return f.addr }
-func (f *UDPFlow) SetDeadline(time.Time) error        { return nil }
-func (f *UDPFlow) SetReadDeadline(time.Time) error    { return nil }
-func (f *UDPFlow) SetWriteDeadline(time.Time) error   { return nil }
+func (f *UDPFlow) LocalAddr() net.Addr              { return f.conn.LocalAddr() }
+func (f *UDPFlow) RemoteAddr() net.Addr             { return f.addr }
+func (f *UDPFlow) SetDeadline(time.Time) error      { return nil }
+func (f *UDPFlow) SetReadDeadline(time.Time) error  { return nil }
+func (f *UDPFlow) SetWriteDeadline(time.Time) error { return nil }
 
-// Push 将收到的数据报投递到读取侧，过载时丢弃，避免阻塞监听循环
+// Push 将收到的数据报投递到读取侧，过载时丢弃，避免阻塞监听循环。
+// 持读锁检查并发送，确保不会与 Close 的 close(in) 竞争。
 func (f *UDPFlow) Push(b []byte) {
-	if f.closed.Load() {
-		return
-	}
 	cp := make([]byte, len(b))
 	copy(cp, b)
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.closed {
+		return
+	}
 	select {
 	case f.in <- cp:
 	default:
@@ -65,7 +69,10 @@ func (f *UDPFlow) Read(p []byte) (int, error) {
 }
 
 func (f *UDPFlow) Write(p []byte) (int, error) {
-	if f.closed.Load() {
+	f.mu.RLock()
+	closed := f.closed
+	f.mu.RUnlock()
+	if closed {
 		return 0, net.ErrClosed
 	}
 	return f.conn.WriteToUDP(p, f.addr)
@@ -74,8 +81,10 @@ func (f *UDPFlow) Write(p []byte) (int, error) {
 // Close 关闭会话（幂等）
 func (f *UDPFlow) Close() error {
 	f.once.Do(func() {
-		f.closed.Store(true)
+		f.mu.Lock()
+		f.closed = true
 		close(f.in)
+		f.mu.Unlock()
 	})
 	return nil
 }

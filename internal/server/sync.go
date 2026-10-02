@@ -51,8 +51,8 @@ func (s *Server) handleProxyReport(nodeName string, report *protocol.ProxyReport
 		if err != nil {
 			continue
 		}
-		// LWW：仅当上报版本更新时覆盖
-		if spec.UpdatedAt > existing.UpdatedAt.UnixMilli() {
+		// LWW：以配置版本号为准（UpdatedAt 会被 GORM 在每次保存时刷新，不能用于比较）
+		if spec.Version > existing.Version {
 			applySpecToProxy(spec, &existing)
 			existing.NodeName = nodeName
 			if err := s.db.Save(&existing).Error; err != nil {
@@ -149,7 +149,10 @@ func (s *Server) handleTrafficReport(report *protocol.TrafficReport) {
 
 // disableProxy 停用规则（如流量超限）
 func (s *Server) disableProxy(p *model.Proxy, reason string) {
-	s.db.Model(&model.Proxy{}).Where("id = ?", p.ID).Update("enabled", false)
+	s.db.Model(&model.Proxy{}).Where("id = ?", p.ID).Updates(map[string]any{
+		"enabled": false,
+		"version": p.Version + 1, // 自动停用也是真实状态变更，需同步到对端
+	})
 	s.pm.Remove(p.Name)
 	s.events.Broadcast("proxy_status", map[string]any{"name": p.Name, "enabled": false, "reason": reason})
 	if p.NodeName != "" {

@@ -76,9 +76,10 @@ type ProxySpec struct {
 	LocalPort    int    `json:"local_port"`
 	Enabled      bool   `json:"enabled"`
 	Origin       string `json:"origin"`
+	Version      int64  `json:"version"` // 配置版本号：仅真实编辑时递增，LWW 以它为唯一依据
 	RateLimitKB  int    `json:"rate_limit_kb"`
 	TrafficLimit int64  `json:"traffic_limit"`
-	UpdatedAt    int64  `json:"updated_at"` // UnixMilli，用于 LWW 合并
+	UpdatedAt    int64  `json:"updated_at"` // UnixMilli，仅用于展示
 }
 
 // ProxyReport 全量规则上报 / 同步

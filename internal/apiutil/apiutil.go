@@ -65,6 +65,7 @@ func ProxyToSpec(p *model.Proxy) protocol.ProxySpec {
 		LocalPort:    p.LocalPort,
 		Enabled:      p.Enabled,
 		Origin:       p.Origin,
+		Version:      p.Version,
 		RateLimitKB:  p.RateLimitKB,
 		TrafficLimit: p.TrafficLimit,
 		UpdatedAt:    p.UpdatedAt.UnixMilli(),
@@ -84,6 +85,7 @@ func SpecToProxy(spec protocol.ProxySpec, nodeName string) *model.Proxy {
 		LocalPort:    spec.LocalPort,
 		Enabled:      spec.Enabled,
 		Origin:       spec.Origin,
+		Version:      spec.Version,
 		RateLimitKB:  spec.RateLimitKB,
 		TrafficLimit: spec.TrafficLimit,
 	}
@@ -101,6 +103,7 @@ func ApplySpecToProxy(spec protocol.ProxySpec, p *model.Proxy) {
 	if spec.Origin != "" {
 		p.Origin = spec.Origin
 	}
+	p.Version = spec.Version
 	p.RateLimitKB = spec.RateLimitKB
 	p.TrafficLimit = spec.TrafficLimit
 }

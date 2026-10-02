@@ -291,8 +291,40 @@ func (pm *ProxyManager) Snapshot() map[string]RuntimeInfo {
 	return out
 }
 
+// unchanged 判断规则监听配置是否与当前运行态一致；一致时无需重建监听。
+// 周期性同步会反复调用 Apply，若无条件 stop+重建，UDP 会话会随监听套接字一起被拆掉。
+func (pm *ProxyManager) unchanged(p *model.Proxy) bool {
+	pm.mu.RLock()
+	old, known := pm.metas[p.Name]
+	_, listening := pm.entries[p.Name]
+	pm.mu.RUnlock()
+
+	if !known {
+		return false
+	}
+	if old.Type != p.Type || old.Direction != p.Direction ||
+		old.ListenAddr != p.ListenAddr() || old.Target != p.TargetAddr() ||
+		old.RateLimitKB != p.RateLimitKB {
+		return false
+	}
+	// 监听状态不一致（含上次监听失败、需要重试）时重新应用
+	wantListen := p.Enabled && p.Direction != model.DirectionForward
+	return listening == wantListen
+}
+
 // Apply 应用规则：启动/重启本地监听（reverse 方向）
 func (pm *ProxyManager) Apply(p *model.Proxy) error {
+	if pm.unchanged(p) {
+		// 配置未变：只刷新不影响监听的元信息，保持既有监听与 UDP 会话不变
+		pm.mu.Lock()
+		if m, ok := pm.metas[p.Name]; ok {
+			m.NodeName = p.NodeName
+			m.TrafficLimit = p.TrafficLimit
+			pm.metas[p.Name] = m
+		}
+		pm.mu.Unlock()
+		return nil
+	}
 	pm.stop(p.Name)
 
 	pm.mu.Lock()

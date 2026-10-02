@@ -390,6 +390,7 @@ func (c *Client) handleCreateProxy(ctx *gin.Context) {
 		RemoteAddr: defaultAddr(req.RemoteAddr), RemotePort: req.RemotePort,
 		LocalIP: req.LocalIP, LocalPort: req.LocalPort,
 		Enabled: enabled, Origin: model.OriginClient,
+		Version:     1,
 		RateLimitKB: req.RateLimitKB, TrafficLimit: req.TrafficLimit, Remark: req.Remark,
 	}
 	if err := c.db.Create(p).Error; err != nil {
@@ -450,6 +451,7 @@ func (c *Client) handleUpdateProxy(ctx *gin.Context) {
 	if p.Origin == "" {
 		p.Origin = model.OriginClient
 	}
+	p.Version++ // 真实编辑，递增版本号以同步到中转端
 
 	if err := c.db.Save(&p).Error; err != nil {
 		fail(ctx, http.StatusInternalServerError, err.Error())
@@ -489,7 +491,8 @@ func (c *Client) handleToggleProxy(ctx *gin.Context) {
 		return
 	}
 	p.Enabled = !p.Enabled
-	if err := c.db.Model(&p).Update("enabled", p.Enabled).Error; err != nil {
+	p.Version++ // 启停属于真实编辑，递增版本号以同步到中转端
+	if err := c.db.Model(&p).Updates(map[string]any{"enabled": p.Enabled, "version": p.Version}).Error; err != nil {
 		fail(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -636,6 +639,7 @@ func (c *Client) handleImportConfig(ctx *gin.Context) {
 			np.ID = 0
 			np.CreatedAt = time.Time{}
 			np.UpdatedAt = time.Time{}
+			np.Version++ // 导入视为真实编辑
 			np.NodeName = c.cfg.NodeName
 			np.TrafficIn, np.TrafficOut, np.TotalConns = 0, 0, 0
 			if np.Origin == "" {
@@ -652,6 +656,7 @@ func (c *Client) handleImportConfig(ctx *gin.Context) {
 		if p.Origin == "" {
 			p.Origin = model.OriginClient
 		}
+		p.Version++ // 导入视为真实编辑
 		if err := c.db.Save(&p).Error; err != nil {
 			continue
 		}

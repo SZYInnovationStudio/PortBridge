@@ -26,6 +26,7 @@ type Proxy struct {
 	Enabled bool `gorm:"default:true" json:"enabled"`
 
 	Origin       string `gorm:"size:16;default:server" json:"origin"`
+	Version      int64  `json:"version"`        // 配置版本号，仅真实编辑时递增，用于两端 LWW 收敛（不能依赖 UpdatedAt）
 	RateLimitKB  int    `json:"rate_limit_kb"`  // 0 表示不限速
 	TrafficLimit int64  `json:"traffic_limit"`  // 月流量上限(字节)，0 表示不限
 	TrafficIn    int64  `json:"traffic_in"`     // 累计入流量(字节)

@@ -94,6 +94,7 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 			np.ID = 0
 			np.CreatedAt = time.Time{}
 			np.UpdatedAt = time.Time{}
+			np.Version++ // 导入视为真实编辑
 			np.TrafficIn, np.TrafficOut, np.TotalConns = 0, 0, 0
 			if err := s.db.Create(&np).Error; err != nil {
 				continue
@@ -106,6 +107,7 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 		if src.NodeName != "" {
 			p.NodeName = src.NodeName
 		}
+		p.Version++ // 导入视为真实编辑
 		if err := s.db.Save(&p).Error; err != nil {
 			continue
 		}

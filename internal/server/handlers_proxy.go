@@ -119,6 +119,7 @@ func (s *Server) handleCreateProxy(c *gin.Context) {
 		RemoteAddr: defaultAddr(req.RemoteAddr), RemotePort: req.RemotePort,
 		LocalIP: req.LocalIP, LocalPort: req.LocalPort,
 		Enabled: enabled, Origin: model.OriginServer,
+		Version:     1,
 		RateLimitKB: req.RateLimitKB, TrafficLimit: req.TrafficLimit, Remark: req.Remark,
 	}
 	if err := s.db.Create(p).Error; err != nil {
@@ -179,6 +180,7 @@ func (s *Server) handleUpdateProxy(c *gin.Context) {
 	p.RateLimitKB = req.RateLimitKB
 	p.TrafficLimit = req.TrafficLimit
 	p.Remark = req.Remark
+	p.Version++ // 真实编辑，递增版本号以同步到对端
 
 	if err := s.db.Save(&p).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
@@ -215,7 +217,8 @@ func (s *Server) handleToggleProxy(c *gin.Context) {
 		return
 	}
 	p.Enabled = !p.Enabled
-	if err := s.db.Model(&p).Update("enabled", p.Enabled).Error; err != nil {
+	p.Version++ // 启停属于真实编辑，递增版本号以同步到对端
+	if err := s.db.Model(&p).Updates(map[string]any{"enabled": p.Enabled, "version": p.Version}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
