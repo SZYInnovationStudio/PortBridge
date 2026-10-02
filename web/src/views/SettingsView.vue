@@ -167,11 +167,14 @@ async function onFile(e: Event) {
   try {
     const text = await file.text()
     const payload = JSON.parse(text) as ExportPayload
-    await ElMessageBox.confirm(
+    const ok = await ElMessageBox.confirm(
       `将导入 ${payload.proxies?.length || 0} 条规则与 ${Object.keys(payload.settings || {}).length} 项设置，同名规则将被覆盖。确定继续？`,
       '导入配置',
       { type: 'warning' },
-    ).catch(() => 'cancel')
+    )
+      .then(() => true)
+      .catch(() => false)
+    if (!ok) return
     const res = await apiImportConfig(payload)
     ElMessage.success(`导入完成：新增 ${res.created} 条，更新 ${res.updated} 条`)
     await load()

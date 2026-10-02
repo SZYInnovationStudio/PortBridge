@@ -27,14 +27,10 @@ func New() *Hub {
 func (h *Hub) Broadcast(typ string, data any) {
 	e := Event{Type: typ, Data: data, Ts: time.Now().UnixMilli()}
 
+	// 持锁期间完成发送，避免与 unsubscribe/close 竞态导致 "send on closed channel"
 	h.mu.RLock()
-	subs := make([]chan Event, 0, len(h.subs))
+	defer h.mu.RUnlock()
 	for ch := range h.subs {
-		subs = append(subs, ch)
-	}
-	h.mu.RUnlock()
-
-	for _, ch := range subs {
 		select {
 		case ch <- e:
 		default: // 订阅者消费慢则丢弃，避免阻塞

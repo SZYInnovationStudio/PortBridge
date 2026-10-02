@@ -368,11 +368,14 @@ async function toggle(row: ProxyItem) {
 }
 
 async function remove(row: ProxyItem) {
-  await ElMessageBox.confirm(`确定删除规则「${row.name}」吗？该操作不可恢复。`, '删除规则', {
+  const ok = await ElMessageBox.confirm(`确定删除规则「${row.name}」吗？该操作不可恢复。`, '删除规则', {
     type: 'warning',
     confirmButtonText: '删除',
     confirmButtonClass: 'el-button--danger',
-  }).catch(() => 'cancel')
+  })
+    .then(() => true)
+    .catch(() => false)
+  if (!ok) return
   await apiDeleteProxy(row.id)
   ElMessage.success('规则已删除')
   await load()

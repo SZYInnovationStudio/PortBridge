@@ -16,6 +16,7 @@ import (
 	"portbridge/internal/config"
 	"portbridge/internal/eventhub"
 	"portbridge/internal/loghub"
+	"portbridge/internal/maintenance"
 	"portbridge/internal/model"
 	"portbridge/internal/protocol"
 	"portbridge/internal/version"
@@ -29,6 +30,8 @@ type Client struct {
 	rules  *ruleManager
 	start  time.Time
 	router *gin.Engine
+
+	loginLimiter *auth.LoginLimiter
 
 	mu         sync.RWMutex
 	runID      string
@@ -44,11 +47,12 @@ type Client struct {
 func New(cfg *config.Config, db *gorm.DB) *Client {
 	auth.Init(cfg.JWTSecret)
 	c := &Client{
-		cfg:    cfg,
-		db:     db,
-		start:  time.Now(),
-		runID:  newRunID(),
-		events: eventhub.New(),
+		cfg:          cfg,
+		db:           db,
+		start:        time.Now(),
+		runID:        newRunID(),
+		events:       eventhub.New(),
+		loginLimiter: auth.NewLoginLimiter(),
 	}
 	c.rules = newRuleManager(c)
 	c.router = c.buildRouter()
@@ -62,6 +66,7 @@ func (c *Client) Run(ctx context.Context) {
 	c.restoreRules()
 
 	go c.controlLoop(ctx)
+	maintenance.Start(c.db, ctx.Done())
 
 	srv := &http.Server{Addr: c.cfg.AdminAddr, Handler: c.router}
 	go func() {

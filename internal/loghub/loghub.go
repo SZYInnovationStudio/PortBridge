@@ -35,23 +35,26 @@ var Default = New(500)
 func (h *Hub) Publish(level, msg string) {
 	e := Entry{Time: time.Now(), Level: level, Msg: msg}
 
+	// 持锁期间完成写入与发送，避免与 unsubscribe/close 竞态导致 "send on closed channel"
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.buf = append(h.buf, e)
 	if len(h.buf) > h.size {
 		h.buf = h.buf[len(h.buf)-h.size:]
 	}
-	subs := make([]chan Entry, 0, len(h.subs))
 	for ch := range h.subs {
-		subs = append(subs, ch)
-	}
-	h.mu.Unlock()
-
-	for _, ch := range subs {
 		select {
 		case ch <- e:
 		default: // 订阅者消费慢则丢弃，避免阻塞
 		}
 	}
+}
+
+// Reset 清空内存中的日志缓冲（供每日清理调用）
+func (h *Hub) Reset() {
+	h.mu.Lock()
+	h.buf = nil
+	h.mu.Unlock()
 }
 
 // Subscribe 订阅日志，返回接收通道与取消函数

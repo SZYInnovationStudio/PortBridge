@@ -1,6 +1,7 @@
 package util
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"net"
@@ -11,6 +12,16 @@ import (
 func SHA256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+// SHA256Equal 以恒定时间比较明文与已存储的 SHA-256 十六进制摘要，避免时序侧信道
+func SHA256Equal(token, hashHex string) bool {
+	want, err := hex.DecodeString(hashHex)
+	if err != nil {
+		return false
+	}
+	got := sha256.Sum256([]byte(token))
+	return hmac.Equal(got[:], want)
 }
 
 // IPAllowed 判断 IP 是否命中白名单；白名单为空时放行

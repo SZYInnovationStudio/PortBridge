@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -64,12 +65,19 @@ func (s *Server) handleLogin(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "用户名与密码不能为空")
 		return
 	}
+	ip := util.RemoteIP(c.Request.RemoteAddr)
+	if ok, wait := s.loginLimiter.Allow(ip); !ok {
+		fail(c, http.StatusTooManyRequests, fmt.Sprintf("登录失败次数过多，请 %d 秒后重试", int(wait.Seconds())+1))
+		return
+	}
 	var user model.User
 	if err := s.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+		s.loginLimiter.Fail(ip)
 		fail(c, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
 	if !auth.CheckPassword(user.PasswordHash, req.Password) {
+		s.loginLimiter.Fail(ip)
 		s.audit(c, user.ID, user.Username, "login_failed", "", "密码错误")
 		fail(c, http.StatusUnauthorized, "用户名或密码错误")
 		return
@@ -79,8 +87,8 @@ func (s *Server) handleLogin(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "生成令牌失败")
 		return
 	}
+	s.loginLimiter.Reset(ip)
 	now := time.Now()
-	ip := util.RemoteIP(c.Request.RemoteAddr)
 	s.db.Model(&user).Updates(map[string]any{"last_login_at": now, "last_login_ip": ip})
 	s.audit(c, user.ID, user.Username, "login", "", "登录成功")
 	ok(c, gin.H{

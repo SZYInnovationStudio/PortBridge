@@ -39,15 +39,21 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 	})
 }
 
-// handleUpdateSettings 更新可持久化设置
+// handleUpdateSettings 更新可持久化设置；值为 null 表示删除该键
 func (s *Server) handleUpdateSettings(c *gin.Context) {
-	var req map[string]string
+	var req map[string]*string
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 	for k, v := range req {
-		if err := store.SetSetting(s.db, k, v); err != nil {
+		var err error
+		if v == nil {
+			err = store.DeleteSetting(s.db, k)
+		} else {
+			err = store.SetSetting(s.db, k, *v)
+		}
+		if err != nil {
 			fail(c, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -82,21 +88,36 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "导入文件格式错误")
 		return
 	}
-	created, updated := 0, 0
+	// 预取本机已有节点名，导入时校验规则归属，避免指向不存在的节点
+	nodeSet := make(map[string]bool)
+	var nodes []model.Node
+	s.db.Find(&nodes)
+	for _, n := range nodes {
+		nodeSet[n.Name] = true
+	}
+
+	created, updated, skipped := 0, 0, 0
 	for i := range payload.Proxies {
 		src := payload.Proxies[i]
-		if src.Name == "" || src.RemotePort <= 0 || src.LocalPort <= 0 {
+		if src.Name == "" || src.RemotePort <= 0 || src.LocalPort <= 0 || src.RemotePort > 65535 || src.LocalPort > 65535 {
+			skipped++
+			continue
+		}
+		if src.NodeName == "" || !nodeSet[src.NodeName] {
+			skipped++
 			continue
 		}
 		var p model.Proxy
 		if err := s.db.Where("name = ?", src.Name).First(&p).Error; err != nil {
 			np := src
 			np.ID = 0
+			np.NodeID = 0
 			np.CreatedAt = time.Time{}
 			np.UpdatedAt = time.Time{}
 			np.Version++ // 导入视为真实编辑
 			np.TrafficIn, np.TrafficOut, np.TotalConns = 0, 0, 0
 			if err := s.db.Create(&np).Error; err != nil {
+				skipped++
 				continue
 			}
 			s.applyProxy(&np)
@@ -104,11 +125,10 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 			continue
 		}
 		applySpecToProxy(proxyToSpec(&src), &p)
-		if src.NodeName != "" {
-			p.NodeName = src.NodeName
-		}
+		p.NodeName = src.NodeName
 		p.Version++ // 导入视为真实编辑
 		if err := s.db.Save(&p).Error; err != nil {
+			skipped++
 			continue
 		}
 		s.applyProxy(&p)
@@ -118,5 +138,5 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 		_ = store.SetSetting(s.db, k, v)
 	}
 	s.auditMe(c, "import_config", "", "")
-	ok(c, gin.H{"created": created, "updated": updated})
+	ok(c, gin.H{"created": created, "updated": updated, "skipped": skipped})
 }

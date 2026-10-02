@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -49,6 +48,11 @@ func (s *Server) handleProxyReport(nodeName string, report *protocol.ProxyReport
 			continue
 		}
 		if err != nil {
+			continue
+		}
+		// 同名规则若归属其它节点，拒绝抢占，避免跨节点覆盖
+		if existing.NodeName != "" && existing.NodeName != nodeName {
+			loghub.Default.Publish("warn", fmt.Sprintf("拒绝规则 %s 的跨节点覆盖（归属 %s，来自 %s）", spec.Name, existing.NodeName, nodeName))
 			continue
 		}
 		// LWW：以配置版本号为准（UpdatedAt 会被 GORM 在每次保存时刷新，不能用于比较）
@@ -115,6 +119,9 @@ func (s *Server) handleProxyChange(nodeName string, msgType protocol.MsgType, sp
 	if err != nil {
 		return false, err.Error()
 	}
+	if p.NodeName != "" && p.NodeName != nodeName {
+		return false, "规则属于其它节点"
+	}
 	applySpecToProxy(*spec, &p)
 	p.NodeName = nodeName
 	if err := s.db.Save(&p).Error; err != nil {
@@ -123,28 +130,6 @@ func (s *Server) handleProxyChange(nodeName string, msgType protocol.MsgType, sp
 	s.applyProxy(&p)
 	s.broadcastProxyChange(p.Name)
 	return true, ""
-}
-
-// handleTrafficReport 处理原站端上报的流量增量
-func (s *Server) handleTrafficReport(report *protocol.TrafficReport) {
-	now := time.Now()
-	for _, it := range report.Items {
-		if it.BytesIn == 0 && it.BytesOut == 0 && it.Conns == 0 {
-			continue
-		}
-		s.db.Model(&model.Proxy{}).Where("name = ?", it.ProxyName).Updates(map[string]any{
-			"traffic_in":  gorm.Expr("traffic_in + ?", it.BytesIn),
-			"traffic_out": gorm.Expr("traffic_out + ?", it.BytesOut),
-			"total_conns": gorm.Expr("total_conns + ?", it.Conns),
-		})
-		var p model.Proxy
-		if err := s.db.Where("name = ?", it.ProxyName).First(&p).Error; err == nil {
-			s.db.Create(&model.TrafficStat{
-				ProxyID: p.ID, ProxyName: it.ProxyName,
-				BytesIn: it.BytesIn, BytesOut: it.BytesOut, Conns: int(it.Conns), BucketAt: now,
-			})
-		}
-	}
 }
 
 // disableProxy 停用规则（如流量超限）

@@ -15,25 +15,27 @@ import (
 	"portbridge/internal/config"
 	"portbridge/internal/eventhub"
 	"portbridge/internal/loghub"
+	"portbridge/internal/maintenance"
 	"portbridge/internal/model"
 	"portbridge/internal/version"
 )
 
 // Server 中转端
 type Server struct {
-	cfg    *config.Config
-	db     *gorm.DB
-	hub    *AgentHub
-	pm     *ProxyManager
-	events *eventhub.Hub
-	start  time.Time
-	router *gin.Engine
+	cfg          *config.Config
+	db           *gorm.DB
+	hub          *AgentHub
+	pm           *ProxyManager
+	events       *eventhub.Hub
+	loginLimiter *auth.LoginLimiter
+	start        time.Time
+	router       *gin.Engine
 }
 
 // New 创建中转端实例
 func New(cfg *config.Config, db *gorm.DB) *Server {
 	auth.Init(cfg.JWTSecret)
-	s := &Server{cfg: cfg, db: db, start: time.Now()}
+	s := &Server{cfg: cfg, db: db, start: time.Now(), loginLimiter: auth.NewLoginLimiter()}
 	s.events = eventhub.New()
 	s.hub = newAgentHub(s)
 	s.pm = newProxyManager(s)
@@ -54,6 +56,7 @@ func (s *Server) Run(ctx context.Context) {
 	}()
 	go s.hub.offlineWatcher(ctx)
 	go s.trafficFlusher(ctx)
+	maintenance.Start(s.db, ctx.Done())
 
 	srv := &http.Server{Addr: s.cfg.AdminAddr, Handler: s.router}
 	go func() {
@@ -109,6 +112,14 @@ type flushState struct {
 	total int64
 }
 
+// monthKey 返回时间所在的自然月（UTC+8），用于月流量限额的跨月判定
+func monthKey(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.In(time.FixedZone("CST", 8*3600)).Format("2006-01")
+}
+
 // trafficFlusher 周期性将内存计数落库并做流量限额校验
 func (s *Server) trafficFlusher(ctx context.Context) {
 	last := make(map[string]flushState)
@@ -134,23 +145,33 @@ func (s *Server) trafficFlusher(ctx context.Context) {
 					continue
 				}
 
-				s.db.Model(&model.Proxy{}).Where("name = ?", name).Updates(map[string]any{
+				var p model.Proxy
+				if err := s.db.Where("name = ?", name).First(&p).Error; err != nil {
+					continue
+				}
+
+				// 月流量限额：跨月后计数归零重新统计
+				if monthKey(p.TrafficResetAt) != monthKey(now) {
+					s.db.Model(&model.Proxy{}).Where("id = ?", p.ID).Updates(map[string]any{
+						"traffic_in": 0, "traffic_out": 0, "total_conns": 0, "traffic_reset_at": now,
+					})
+					p.TrafficIn, p.TrafficOut, p.TotalConns = 0, 0, 0
+				}
+
+				s.db.Model(&model.Proxy{}).Where("id = ?", p.ID).Updates(map[string]any{
 					"traffic_in":  gorm.Expr("traffic_in + ?", dIn),
 					"traffic_out": gorm.Expr("traffic_out + ?", dOut),
 					"total_conns": gorm.Expr("total_conns + ?", dConns),
 				})
 
-				var p model.Proxy
-				if err := s.db.Where("name = ?", name).First(&p).Error; err == nil {
-					s.db.Create(&model.TrafficStat{
-						ProxyID: p.ID, ProxyName: name,
-						BytesIn: dIn, BytesOut: dOut, Conns: int(dConns), BucketAt: now,
-					})
-					// 月流量限额
-					if p.TrafficLimit > 0 && p.TrafficIn+p.TrafficOut >= p.TrafficLimit {
-						loghub.Default.Publish("warn", fmt.Sprintf("规则 %s 已达流量上限，自动停用", name))
-						s.disableProxy(&p, "traffic_limit")
-					}
+				s.db.Create(&model.TrafficStat{
+					ProxyID: p.ID, ProxyName: name,
+					BytesIn: dIn, BytesOut: dOut, Conns: int(dConns), BucketAt: now,
+				})
+				// 月流量限额（按本月累计判定）
+				if p.TrafficLimit > 0 && p.TrafficIn+dIn+p.TrafficOut+dOut >= p.TrafficLimit {
+					loghub.Default.Publish("warn", fmt.Sprintf("规则 %s 已达流量上限，自动停用", name))
+					s.disableProxy(&p, "traffic_limit")
 				}
 				_ = conns
 			}

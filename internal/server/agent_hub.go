@@ -115,12 +115,15 @@ func (h *AgentHub) register(a *Agent) {
 	h.mu.Unlock()
 }
 
-func (h *AgentHub) unregister(nodeName, runID string) {
+// unregister 注销连接，仅当 hub 中当前记录的就是该连接（指针一致）时才删除，返回是否真正删除
+func (h *AgentHub) unregister(a *Agent) bool {
 	h.mu.Lock()
-	if a, ok := h.agents[nodeName]; ok && a.RunID == runID {
-		delete(h.agents, nodeName)
+	defer h.mu.Unlock()
+	if cur, ok := h.agents[a.NodeName]; ok && cur == a {
+		delete(h.agents, a.NodeName)
+		return true
 	}
-	h.mu.Unlock()
+	return false
 }
 
 // OnlineNodes 返回在线节点名列表
@@ -169,8 +172,11 @@ func (h *AgentHub) SendWorkConn(proxyName, sessionID, typ, mode string) error {
 func (h *AgentHub) runReadLoop(a *Agent) {
 	defer func() {
 		a.close()
-		h.unregister(a.NodeName, a.RunID)
-		h.srv.onAgentOffline(a)
+		// 仅当该连接仍是 hub 中的当前连接时才标记离线；
+		// 若期间已被新连接顶替（重连/同名登录），则不应把新连接误判为离线。
+		if h.unregister(a) {
+			h.srv.onAgentOffline(a)
+		}
 	}()
 
 	for {
@@ -214,13 +220,6 @@ func (h *AgentHub) dispatch(a *Agent, msg protocol.Message) {
 		ok, errMsg := h.srv.handleProxyChange(a.NodeName, msg.Type, &spec)
 		ack, _ := protocol.NewMessage(protocol.MsgProxyAck, protocol.ProxyAck{Name: spec.Name, OK: ok, Msg: errMsg})
 		a.send(ack)
-
-	case protocol.MsgTrafficReport:
-		report, err := protocol.Decode[protocol.TrafficReport](msg)
-		if err != nil {
-			return
-		}
-		h.srv.handleTrafficReport(&report)
 
 	case protocol.MsgStatusReport:
 		// 运行态，仅记录日志

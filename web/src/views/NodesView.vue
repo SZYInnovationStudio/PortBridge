@@ -190,11 +190,14 @@ async function submit() {
 }
 
 async function resetToken(row: NodeItem) {
-  await ElMessageBox.confirm(
+  const ok = await ElMessageBox.confirm(
     `重置后节点「${row.name}」将立即断开，需使用新密钥重新连接。确定继续？`,
     '重置密钥',
     { type: 'warning' },
-  ).catch(() => 'cancel')
+  )
+    .then(() => true)
+    .catch(() => false)
+  if (!ok) return
   const res = await apiResetNodeToken(row.id)
   tokenValue.value = res.token
   tokenNodeName.value = row.name
@@ -209,11 +212,14 @@ async function kick(row: NodeItem) {
 }
 
 async function remove(row: NodeItem) {
-  await ElMessageBox.confirm(
+  const ok = await ElMessageBox.confirm(
     `删除节点「${row.name}」会同时删除其全部转发规则，且不可恢复。确定删除？`,
     '删除节点',
     { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
-  ).catch(() => 'cancel')
+  )
+    .then(() => true)
+    .catch(() => false)
+  if (!ok) return
   await apiDeleteNode(row.id)
   ElMessage.success('节点已删除')
   await load()

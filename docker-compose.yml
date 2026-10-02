@@ -1,13 +1,16 @@
 # PortBridge 容器编排示例
 #
-# 中转端(server) 默认启动：
-#   docker compose up -d
-# 原站端(client) 使用 profile 启动（把 SERVER_ADDR / TOKEN 换成中转端生成的值）：
-#   docker compose --profile client up -d
-#
 # 说明：
 # - 两端使用同一个镜像，仅通过 PORTBRIDGE_ROLE 区分角色。
-# - 配置文件通过目录挂载，若目录为空则完全使用环境变量与内置默认值。
+# - 中转端需要对外监听「任意业务端口」，因此使用 host 网络模式（仅 Linux），
+#   否则必须把每条规则用到的公网端口逐个写进 ports 才能被外部访问。
+# - 原站端只主动外连，管理界面绑定到 127.0.0.1，默认改用 23257 以避免与中转端 23255 冲突。
+# - 数据通过命名卷持久化，由镜像内已授权的非 root 用户写入，规避宿主机目录权限问题。
+#
+# 中转端（公网服务器）：
+#   docker compose up -d server
+# 原站端（内网机器，把 SERVER_ADDR / TOKEN 换成真实值）：
+#   docker compose --profile client up -d client
 
 services:
   # ---------------- 中转端（公网服务器） ----------------
@@ -19,6 +22,8 @@ services:
     image: portbridge:latest
     container_name: portbridge-server
     restart: unless-stopped
+    # 需监听任意业务端口，host 模式可免去逐端口映射（仅 Linux 支持）
+    network_mode: host
     environment:
       PORTBRIDGE_ROLE: server
       PORTBRIDGE_NODE_NAME: beijing-relay
@@ -26,16 +31,19 @@ services:
       PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
       PORTBRIDGE_DSN: "/app/data/portbridge.db"
     volumes:
-      - ./deploy/data/server:/app/data
-      - ./deploy/config/server:/app/config:ro
-    ports:
-      - "23255:23255"   # 管理面：Web UI + REST + 控制通道
-      - "23256:23256"   # 数据面：裸 TCP 数据通道
-      # 下面按需映射实际使用的公网转发端口（需与规则中的监听端口一致）
-      - "8080:8080"
-      - "2222:2222/udp"
-    networks:
-      - portbridge
+      - portbridge-server-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:23255/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 限制容器 stdout 日志大小，防止异常刷屏写满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ---------------- 原站端（内网机器） ----------------
   # 启动前请在中转端创建节点，拿到节点名与一次性密钥，填入下面的环境变量。
@@ -44,8 +52,6 @@ services:
     container_name: portbridge-client
     restart: unless-stopped
     profiles: ["client"]
-    depends_on:
-      - server
     environment:
       PORTBRIDGE_ROLE: client
       PORTBRIDGE_NODE_NAME: ningbo-origin
@@ -53,17 +59,26 @@ services:
       PORTBRIDGE_SERVER_ADDR: "relay.example.com:23255"
       PORTBRIDGE_SERVER_DATA_ADDR: "relay.example.com:23256"
       PORTBRIDGE_TOKEN: "replace-with-node-token"
-      PORTBRIDGE_ADMIN_PORT: "23255"
+      PORTBRIDGE_ADMIN_PORT: "23257"
       PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
       PORTBRIDGE_DSN: "/app/data/portbridge.db"
     volumes:
-      - ./deploy/data/client:/app/data
-      - ./deploy/config/client:/app/config:ro
+      - portbridge-client-data:/app/data
     ports:
-      - "23255:23255"   # 原站端本地管理界面
-    networks:
-      - portbridge
+      - "127.0.0.1:23257:23257"   # 原站端本地管理界面，仅本机可访问
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:23257/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 限制容器 stdout 日志大小，防止异常刷屏写满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-networks:
-  portbridge:
-    driver: bridge
+volumes:
+  portbridge-server-data:
+  portbridge-client-data:

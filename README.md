@@ -170,30 +170,41 @@ vi config.yaml        # 填写 server_addr / server_data_addr / token / node_nam
 ## Docker 部署
 
 ```bash
-# 仅启动中转端
+# 仅启动中转端（使用 host 网络，可直接监听任意业务端口）
 docker compose up -d server
 
 # 启动原站端（先把 SERVER_ADDR / TOKEN 改为真实值）
 docker compose --profile client up -d client
 ```
 
-数据与配置通过目录挂载持久化：
+> **关于网络模式**：中转端需要监听「任意业务端口」并直接对外服务，
+> 因此 compose 中中转端使用 `network_mode: host`（仅 Linux 支持）。
+> 若坚持 bridge 网络，则必须为每条规则的公网监听端口逐个添加 `-p 端口:端口`，
+> 否则外部流量无法到达转发端口。原站端只主动外连，保持 bridge 即可。
 
-- `./deploy/data/<role>` → `/app/data`（SQLite 数据库等）
-- `./deploy/config/<role>` → `/app/config`（配置文件，只读）
+数据通过**命名卷**持久化（由镜像内非 root 用户写入，无需处理宿主机目录权限）：
+
+- `portbridge-server-data` → `/app/data`（中转端 SQLite 数据库等）
+- `portbridge-client-data` → `/app/data`（原站端 SQLite 数据库等）
+
+配置推荐全部通过环境变量传入（见[配置文件](#配置文件)）；
+如需挂载配置文件，可自行追加 `- ./config:/app/config:ro`。
 
 也可直接构建镜像：
 
 ```bash
 docker build -t portbridge:latest .
 docker run -d --name portbridge-server \
-  -p 23255:23255 -p 23256:23256 -p 8080:8080 \
+  --network host \
   -e PORTBRIDGE_ROLE=server \
   -e PORTBRIDGE_NODE_NAME=beijing-relay \
   -e PORTBRIDGE_JWT_SECRET=change-me \
-  -v $PWD/deploy/data/server:/app/data \
+  -v portbridge-data:/app/data \
   portbridge:latest
 ```
+
+启动后访问 `http://<公网IP>:23255` 进入中转端管理界面。
+原站端容器启动后，其管理界面通过 `http://127.0.0.1:23257` 本机访问。
 
 ### 发布镜像到 Docker Hub
 
@@ -216,10 +227,10 @@ docker run -d --name portbridge-server \
 
 ```bash
 docker run -d --name portbridge-server \
-  -p 23255:23255 -p 23256:23256 -p 8080:8080 \
+  --network host \
   -e PORTBRIDGE_ROLE=server \
   -e PORTBRIDGE_JWT_SECRET=change-me \
-  -v $PWD/data:/app/data \
+  -v portbridge-data:/app/data \
   <DOCKERHUB_USERNAME>/portbridge:latest
 ```
 

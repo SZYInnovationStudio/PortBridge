@@ -66,6 +66,10 @@ router.beforeEach(async (to) => {
   if (!auth.systemInfo) {
     await auth.bootstrap()
   }
+  // bootstrap 可能因令牌失效而登出，需再次校验登录态
+  if (!auth.isLogged) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
   const needRole = to.meta.role as string | undefined
   if (needRole && auth.role !== needRole) {
     return { path: '/overview' }

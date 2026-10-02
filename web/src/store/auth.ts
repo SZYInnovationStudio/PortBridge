@@ -28,7 +28,7 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isLogged: (s) => !!s.token,
-    role: (s): Role => s.systemInfo?.role || 'server',
+    role: (s): Role | '' => s.systemInfo?.role ?? '',
     isServer: (s) => s.systemInfo?.role === 'server',
     isClient: (s) => s.systemInfo?.role === 'client',
     displayName: (s) => s.user?.nickname || s.user?.username || '未登录',

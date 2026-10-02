@@ -32,17 +32,8 @@ func (s *Server) buildRouter() *gin.Engine {
 		a.GET("/ws/events", s.handleWSEvents)
 
 		a.GET("/nodes", s.handleListNodes)
-		a.POST("/nodes", s.handleCreateNode)
-		a.PUT("/nodes/:id", s.handleUpdateNode)
-		a.DELETE("/nodes/:id", s.handleDeleteNode)
-		a.POST("/nodes/:id/token", s.handleResetNodeToken)
-		a.POST("/nodes/:id/kick", s.handleKickNode)
 
 		a.GET("/proxies", s.handleListProxies)
-		a.POST("/proxies", s.handleCreateProxy)
-		a.PUT("/proxies/:id", s.handleUpdateProxy)
-		a.DELETE("/proxies/:id", s.handleDeleteProxy)
-		a.POST("/proxies/:id/toggle", s.handleToggleProxy)
 		a.GET("/ports/check", s.handleCheckPort)
 
 		a.GET("/stats/overview", s.handleOverview)
@@ -50,9 +41,26 @@ func (s *Server) buildRouter() *gin.Engine {
 		a.GET("/logs", s.handleLogs)
 
 		a.GET("/settings", s.handleGetSettings)
-		a.PUT("/settings", s.handleUpdateSettings)
 		a.GET("/config/export", s.handleExportConfig)
-		a.POST("/config/import", s.handleImportConfig)
+
+		// 管理性写操作仅限管理员
+		adm := a.Group("")
+		adm.Use(auth.RequireAdmin())
+		{
+			adm.POST("/nodes", s.handleCreateNode)
+			adm.PUT("/nodes/:id", s.handleUpdateNode)
+			adm.DELETE("/nodes/:id", s.handleDeleteNode)
+			adm.POST("/nodes/:id/token", s.handleResetNodeToken)
+			adm.POST("/nodes/:id/kick", s.handleKickNode)
+
+			adm.POST("/proxies", s.handleCreateProxy)
+			adm.PUT("/proxies/:id", s.handleUpdateProxy)
+			adm.DELETE("/proxies/:id", s.handleDeleteProxy)
+			adm.POST("/proxies/:id/toggle", s.handleToggleProxy)
+
+			adm.PUT("/settings", s.handleUpdateSettings)
+			adm.POST("/config/import", s.handleImportConfig)
+		}
 	}
 
 	s.mountStatic(r)

@@ -119,7 +119,10 @@ const menus = computed(() => {
   return all.filter((m) => !m.role || m.role === auth.role)
 })
 
-const roleLabel = computed(() => (auth.isServer ? '中转端 Server' : '原站端 Client'))
+const roleLabel = computed(() => {
+  if (!auth.systemInfo) return '加载中…'
+  return auth.isServer ? '中转端 Server' : '原站端 Client'
+})
 const wsOpen = computed(() => rt.open)
 const clientOnline = computed(() => !!auth.systemInfo?.connected)
 
@@ -184,7 +187,10 @@ async function onCommand(cmd: string) {
     return
   }
   if (cmd === 'logout') {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' }).catch(() => 'cancel')
+    const ok = await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
+      .then(() => true)
+      .catch(() => false)
+    if (!ok) return
     auth.logout()
     rt.disconnect()
     router.push('/login')

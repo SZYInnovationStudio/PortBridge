@@ -55,17 +55,24 @@ func (c *Client) buildRouter() *gin.Engine {
 		a.GET("/ws/events", c.handleWSEvents)
 
 		a.GET("/proxies", c.handleListProxies)
-		a.POST("/proxies", c.handleCreateProxy)
-		a.PUT("/proxies/:id", c.handleUpdateProxy)
-		a.DELETE("/proxies/:id", c.handleDeleteProxy)
-		a.POST("/proxies/:id/toggle", c.handleToggleProxy)
 		a.GET("/ports/check", c.handleCheckPort)
 
 		a.GET("/logs", c.handleLogs)
 		a.GET("/settings", c.handleGetSettings)
-		a.PUT("/settings", c.handleUpdateSettings)
 		a.GET("/config/export", c.handleExportConfig)
-		a.POST("/config/import", c.handleImportConfig)
+
+		// 管理性写操作仅限管理员
+		adm := a.Group("")
+		adm.Use(auth.RequireAdmin())
+		{
+			adm.POST("/proxies", c.handleCreateProxy)
+			adm.PUT("/proxies/:id", c.handleUpdateProxy)
+			adm.DELETE("/proxies/:id", c.handleDeleteProxy)
+			adm.POST("/proxies/:id/toggle", c.handleToggleProxy)
+
+			adm.PUT("/settings", c.handleUpdateSettings)
+			adm.POST("/config/import", c.handleImportConfig)
+		}
 	}
 
 	c.mountStatic(r)
@@ -146,12 +153,19 @@ func (c *Client) handleLogin(ctx *gin.Context) {
 		fail(ctx, http.StatusBadRequest, "用户名与密码不能为空")
 		return
 	}
+	ip := util.RemoteIP(ctx.Request.RemoteAddr)
+	if ok, wait := c.loginLimiter.Allow(ip); !ok {
+		fail(ctx, http.StatusTooManyRequests, fmt.Sprintf("登录失败次数过多，请 %d 秒后重试", int(wait.Seconds())+1))
+		return
+	}
 	var user model.User
 	if err := c.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+		c.loginLimiter.Fail(ip)
 		fail(ctx, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
 	if !auth.CheckPassword(user.PasswordHash, req.Password) {
+		c.loginLimiter.Fail(ip)
 		c.audit(ctx, user.ID, user.Username, "login_failed", "", "密码错误")
 		fail(ctx, http.StatusUnauthorized, "用户名或密码错误")
 		return
@@ -161,8 +175,8 @@ func (c *Client) handleLogin(ctx *gin.Context) {
 		fail(ctx, http.StatusInternalServerError, "生成令牌失败")
 		return
 	}
+	c.loginLimiter.Reset(ip)
 	now := time.Now()
-	ip := util.RemoteIP(ctx.Request.RemoteAddr)
 	c.db.Model(&user).Updates(map[string]any{"last_login_at": now, "last_login_ip": ip})
 	c.audit(ctx, user.ID, user.Username, "login", "", "登录成功")
 	ok(ctx, gin.H{
@@ -306,9 +320,9 @@ type proxyReq struct {
 	LocalIP      string `json:"local_ip"`
 	LocalPort    int    `json:"local_port"`
 	Enabled      *bool  `json:"enabled"`
-	RateLimitKB  int    `json:"rate_limit_kb"`
-	TrafficLimit int64  `json:"traffic_limit"`
-	Remark       string `json:"remark"`
+	RateLimitKB  *int   `json:"rate_limit_kb"`
+	TrafficLimit *int64 `json:"traffic_limit"`
+	Remark       *string `json:"remark"`
 }
 
 func normType(t string) string {
@@ -374,6 +388,10 @@ func (c *Client) handleCreateProxy(ctx *gin.Context) {
 		fail(ctx, http.StatusBadRequest, "规则名、监听端口、目标端口均不能为空")
 		return
 	}
+	if req.RemotePort > 65535 || req.LocalPort > 65535 {
+		fail(ctx, http.StatusBadRequest, "端口必须在 1-65535 之间")
+		return
+	}
 	var exist model.Proxy
 	if err := c.db.Where("name = ?", req.Name).First(&exist).Error; err == nil {
 		fail(ctx, http.StatusConflict, "规则名已存在")
@@ -390,8 +408,16 @@ func (c *Client) handleCreateProxy(ctx *gin.Context) {
 		RemoteAddr: defaultAddr(req.RemoteAddr), RemotePort: req.RemotePort,
 		LocalIP: req.LocalIP, LocalPort: req.LocalPort,
 		Enabled: enabled, Origin: model.OriginClient,
-		Version:     1,
-		RateLimitKB: req.RateLimitKB, TrafficLimit: req.TrafficLimit, Remark: req.Remark,
+		Version: 1,
+	}
+	if req.RateLimitKB != nil {
+		p.RateLimitKB = *req.RateLimitKB
+	}
+	if req.TrafficLimit != nil {
+		p.TrafficLimit = *req.TrafficLimit
+	}
+	if req.Remark != nil {
+		p.Remark = *req.Remark
 	}
 	if err := c.db.Create(p).Error; err != nil {
 		fail(ctx, http.StatusInternalServerError, err.Error())
@@ -434,20 +460,34 @@ func (c *Client) handleUpdateProxy(ctx *gin.Context) {
 		p.RemoteAddr = req.RemoteAddr
 	}
 	if req.RemotePort > 0 {
+		if req.RemotePort > 65535 {
+			fail(ctx, http.StatusBadRequest, "端口必须在 1-65535 之间")
+			return
+		}
 		p.RemotePort = req.RemotePort
 	}
 	if req.LocalIP != "" {
 		p.LocalIP = req.LocalIP
 	}
 	if req.LocalPort > 0 {
+		if req.LocalPort > 65535 {
+			fail(ctx, http.StatusBadRequest, "端口必须在 1-65535 之间")
+			return
+		}
 		p.LocalPort = req.LocalPort
 	}
 	if req.Enabled != nil {
 		p.Enabled = *req.Enabled
 	}
-	p.RateLimitKB = req.RateLimitKB
-	p.TrafficLimit = req.TrafficLimit
-	p.Remark = req.Remark
+	if req.RateLimitKB != nil {
+		p.RateLimitKB = *req.RateLimitKB
+	}
+	if req.TrafficLimit != nil {
+		p.TrafficLimit = *req.TrafficLimit
+	}
+	if req.Remark != nil {
+		p.Remark = *req.Remark
+	}
 	if p.Origin == "" {
 		p.Origin = model.OriginClient
 	}
@@ -584,15 +624,21 @@ func (c *Client) handleGetSettings(ctx *gin.Context) {
 	})
 }
 
-// handleUpdateSettings 更新可持久化设置
+// handleUpdateSettings 更新可持久化设置；值为 null 表示删除该键
 func (c *Client) handleUpdateSettings(ctx *gin.Context) {
-	var req map[string]string
+	var req map[string]*string
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		fail(ctx, http.StatusBadRequest, "参数错误")
 		return
 	}
 	for k, v := range req {
-		if err := store.SetSetting(c.db, k, v); err != nil {
+		var err error
+		if v == nil {
+			err = store.DeleteSetting(c.db, k)
+		} else {
+			err = store.SetSetting(c.db, k, *v)
+		}
+		if err != nil {
 			fail(ctx, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -637,6 +683,7 @@ func (c *Client) handleImportConfig(ctx *gin.Context) {
 		if err := c.db.Where("name = ?", src.Name).First(&p).Error; err != nil {
 			np := src
 			np.ID = 0
+			np.NodeID = 0
 			np.CreatedAt = time.Time{}
 			np.UpdatedAt = time.Time{}
 			np.Version++ // 导入视为真实编辑

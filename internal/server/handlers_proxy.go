@@ -13,18 +13,18 @@ import (
 )
 
 type proxyReq struct {
-	NodeName     string `json:"node_name"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Direction    string `json:"direction"`
-	RemoteAddr   string `json:"remote_addr"`
-	RemotePort   int    `json:"remote_port"`
-	LocalIP      string `json:"local_ip"`
-	LocalPort    int    `json:"local_port"`
-	Enabled      *bool  `json:"enabled"`
-	RateLimitKB  int    `json:"rate_limit_kb"`
-	TrafficLimit int64  `json:"traffic_limit"`
-	Remark       string `json:"remark"`
+	NodeName     string  `json:"node_name"`
+	Name         string  `json:"name"`
+	Type         string  `json:"type"`
+	Direction    string  `json:"direction"`
+	RemoteAddr   string  `json:"remote_addr"`
+	RemotePort   int     `json:"remote_port"`
+	LocalIP      string  `json:"local_ip"`
+	LocalPort    int     `json:"local_port"`
+	Enabled      *bool   `json:"enabled"`
+	RateLimitKB  *int    `json:"rate_limit_kb"`
+	TrafficLimit *int64  `json:"traffic_limit"`
+	Remark       *string `json:"remark"`
 }
 
 func normType(t string) string {
@@ -93,6 +93,10 @@ func (s *Server) handleCreateProxy(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "规则名、监听端口、目标端口均不能为空")
 		return
 	}
+	if req.RemotePort > 65535 || req.LocalPort > 65535 {
+		fail(c, http.StatusBadRequest, "端口必须在 1-65535 之间")
+		return
+	}
 	if req.NodeName == "" {
 		fail(c, http.StatusBadRequest, "必须指定所属节点")
 		return
@@ -105,7 +109,7 @@ func (s *Server) handleCreateProxy(c *gin.Context) {
 	}
 	var exist model.Proxy
 	if err := s.db.Where("name = ?", req.Name).First(&exist).Error; err == nil {
-		fail(c, http.StatusConflict, "规则名已存在")
+		fail(c, http.StatusConflict, "规则名已存在（全局唯一）")
 		return
 	}
 
@@ -119,8 +123,16 @@ func (s *Server) handleCreateProxy(c *gin.Context) {
 		RemoteAddr: defaultAddr(req.RemoteAddr), RemotePort: req.RemotePort,
 		LocalIP: req.LocalIP, LocalPort: req.LocalPort,
 		Enabled: enabled, Origin: model.OriginServer,
-		Version:     1,
-		RateLimitKB: req.RateLimitKB, TrafficLimit: req.TrafficLimit, Remark: req.Remark,
+		Version: 1,
+	}
+	if req.RateLimitKB != nil {
+		p.RateLimitKB = *req.RateLimitKB
+	}
+	if req.TrafficLimit != nil {
+		p.TrafficLimit = *req.TrafficLimit
+	}
+	if req.Remark != nil {
+		p.Remark = *req.Remark
 	}
 	if err := s.db.Create(p).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
@@ -147,13 +159,19 @@ func (s *Server) handleUpdateProxy(c *gin.Context) {
 	if req.Name != "" && req.Name != p.Name {
 		var exist model.Proxy
 		if err := s.db.Where("name = ?", req.Name).First(&exist).Error; err == nil {
-			fail(c, http.StatusConflict, "规则名已存在")
+			fail(c, http.StatusConflict, "规则名已存在（全局唯一）")
 			return
 		}
 		s.pm.Remove(p.Name)
 		p.Name = req.Name
 	}
-	if req.NodeName != "" {
+	if req.NodeName != "" && req.NodeName != p.NodeName {
+		var cnt int64
+		s.db.Model(&model.Node{}).Where("name = ?", req.NodeName).Count(&cnt)
+		if cnt == 0 {
+			fail(c, http.StatusBadRequest, "所属节点不存在")
+			return
+		}
 		p.NodeName = req.NodeName
 	}
 	if req.Type != "" {
@@ -166,20 +184,34 @@ func (s *Server) handleUpdateProxy(c *gin.Context) {
 		p.RemoteAddr = req.RemoteAddr
 	}
 	if req.RemotePort > 0 {
+		if req.RemotePort > 65535 {
+			fail(c, http.StatusBadRequest, "端口必须在 1-65535 之间")
+			return
+		}
 		p.RemotePort = req.RemotePort
 	}
 	if req.LocalIP != "" {
 		p.LocalIP = req.LocalIP
 	}
 	if req.LocalPort > 0 {
+		if req.LocalPort > 65535 {
+			fail(c, http.StatusBadRequest, "端口必须在 1-65535 之间")
+			return
+		}
 		p.LocalPort = req.LocalPort
 	}
 	if req.Enabled != nil {
 		p.Enabled = *req.Enabled
 	}
-	p.RateLimitKB = req.RateLimitKB
-	p.TrafficLimit = req.TrafficLimit
-	p.Remark = req.Remark
+	if req.RateLimitKB != nil {
+		p.RateLimitKB = *req.RateLimitKB
+	}
+	if req.TrafficLimit != nil {
+		p.TrafficLimit = *req.TrafficLimit
+	}
+	if req.Remark != nil {
+		p.Remark = *req.Remark
+	}
 	p.Version++ // 真实编辑，递增版本号以同步到对端
 
 	if err := s.db.Save(&p).Error; err != nil {

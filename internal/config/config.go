@@ -1,7 +1,10 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -71,9 +74,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.DataAddr == "" {
 		c.DataAddr = fmt.Sprintf("0.0.0.0:%d", c.DataPort)
-	}
-	if c.JWTSecret == "" {
-		c.JWTSecret = "portbridge-change-me"
 	}
 	if c.DBDriver == "" {
 		c.DBDriver = "sqlite"
@@ -161,10 +161,27 @@ func MustLoad(path string) *Config {
 	return cfg
 }
 
+// weakJWTSecret 历史版本内置的占位弱密钥，出现即视为未配置
+const weakJWTSecret = "portbridge-change-me"
+
+func randomSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// 极端情况下的兜底，仍然避免使用固定值
+		return fmt.Sprintf("pb-%d", os.Getpid())
+	}
+	return hex.EncodeToString(b)
+}
+
 // Validate 校验配置合法性
 func (c *Config) Validate() error {
 	if c.Role != RoleServer && c.Role != RoleClient {
 		return fmt.Errorf("非法角色 %q，仅支持 server / client", c.Role)
+	}
+	if c.JWTSecret == "" || c.JWTSecret == weakJWTSecret {
+		// 使用内置占位弱密钥属于严重安全隐患，自动替换为随机值
+		c.JWTSecret = randomSecret()
+		log.Println("[config] 警告: 未配置 jwt_secret 或使用了默认弱密钥，已生成临时随机密钥；重启后登录态会失效，建议在配置文件中固定 jwt_secret")
 	}
 	if c.Role == RoleClient {
 		if c.ServerAddr == "" {

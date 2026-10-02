@@ -29,10 +29,12 @@ type Proxy struct {
 	Version      int64  `json:"version"`        // 配置版本号，仅真实编辑时递增，用于两端 LWW 收敛（不能依赖 UpdatedAt）
 	RateLimitKB  int    `json:"rate_limit_kb"`  // 0 表示不限速
 	TrafficLimit int64  `json:"traffic_limit"`  // 月流量上限(字节)，0 表示不限
-	TrafficIn    int64  `json:"traffic_in"`     // 累计入流量(字节)
-	TrafficOut   int64  `json:"traffic_out"`    // 累计出流量(字节)
-	TotalConns   int64  `json:"total_conns"`    // 累计连接数
-	Remark       string `gorm:"size:255" json:"remark"`
+	TrafficIn    int64  `json:"traffic_in"`     // 本月累计入流量(字节)
+	TrafficOut   int64  `json:"traffic_out"`    // 本月累计出流量(字节)
+	TotalConns   int64  `json:"total_conns"`     // 本月累计连接数
+	// TrafficResetAt 本月计数周期的起始时间（UTC+8 月界），跨月后自动归零重新统计
+	TrafficResetAt time.Time `json:"traffic_reset_at"`
+	Remark         string    `gorm:"size:255" json:"remark"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

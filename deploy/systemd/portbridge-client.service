@@ -10,7 +10,7 @@ User=portbridge
 Group=portbridge
 WorkingDirectory=/opt/portbridge
 ExecStart=/opt/portbridge/portbridge -c /opt/portbridge/config.yaml
-ExecReload=/bin/kill -HUP $MAINPID
+# 本程序不支持运行时热重载配置，修改配置后请执行 systemctl restart
 Restart=always
 RestartSec=3
 LimitNOFILE=1048576

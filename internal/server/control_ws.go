@@ -69,7 +69,7 @@ func (s *Server) handleAgentControl(c *gin.Context) {
 	})
 	if err := conn.WriteJSON(resp); err != nil {
 		agent.close()
-		s.hub.unregister(agent.NodeName, agent.RunID)
+		s.hub.unregister(agent)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (s *Server) authenticateNode(req protocol.LoginReq, ip string) (*model.Node
 	if err := s.db.Where("name = ?", req.NodeName).First(&node).Error; err != nil {
 		return nil, fmt.Errorf("节点未授权：请先在中转端后台创建该节点")
 	}
-	if node.TokenHash != util.SHA256Hex(req.Token) {
+	if !util.SHA256Equal(req.Token, node.TokenHash) {
 		return nil, fmt.Errorf("节点密钥错误")
 	}
 	if !util.IPAllowed(ip, parseCIDRList(node.IPWhitelist)) {

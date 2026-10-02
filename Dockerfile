@@ -1,17 +1,20 @@
 # ---------- 阶段一：构建前端 ----------
 FROM node:22-alpine AS web
 WORKDIR /app/web
-COPY web/package.json web/package-lock.json* ./
-RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+COPY web/package.json web/package-lock.json ./
+# 使用 npm ci 保证依赖与 lockfile 完全一致（可复现构建）
+RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
 # ---------- 阶段二：构建后端 ----------
 FROM golang:1.22-alpine AS backend
 WORKDIR /src
+# GOPROXY 可通过 --build-arg GOPROXY=... 覆盖（默认使用国内镜像加速）
+ARG GOPROXY=https://goproxy.cn,direct
 ENV CGO_ENABLED=0 \
     GOOS=linux \
-    GOPROXY=https://goproxy.cn,direct
+    GOPROXY=${GOPROXY}
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

@@ -67,3 +67,8 @@ func GetSetting(db *gorm.DB, key, def string) string {
 func SetSetting(db *gorm.DB, key, value string) error {
 	return db.Save(&model.Setting{Key: key, Value: value}).Error
 }
+
+// DeleteSetting 删除配置项
+func DeleteSetting(db *gorm.DB, key string) error {
+	return db.Delete(&model.Setting{}, "key = ?", key).Error
+}
