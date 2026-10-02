@@ -195,6 +195,41 @@ docker run -d --name portbridge-server \
   portbridge:latest
 ```
 
+### 发布镜像到 Docker Hub
+
+仓库内置 GitHub Actions 工作流 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)，
+用于自动构建并推送 **linux/amd64 + linux/arm64** 多架构镜像。
+
+使用前需在仓库 `Settings → Secrets and variables → Actions` 配置：
+
+| Secret | 说明 |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | Docker Hub 用户名 |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token（不是登录密码） |
+
+发布方式：
+
+- **打标签自动发布**：`git tag v0.1.0 && git push origin v0.1.0`
+- **手动触发**：Actions 页面选择该工作流 → Run workflow，可指定版本号
+
+发布后的镜像名为 `<DOCKERHUB_USERNAME>/portbridge`，可直接拉取运行：
+
+```bash
+docker run -d --name portbridge-server \
+  -p 13255:13255 -p 13256:13256 -p 8080:8080 \
+  -e PORTBRIDGE_ROLE=server \
+  -e PORTBRIDGE_JWT_SECRET=change-me \
+  -v $PWD/data:/app/data \
+  <DOCKERHUB_USERNAME>/portbridge:latest
+```
+
+本机若无 Docker，也可在任意有 Docker 的机器上手动构建推送：
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t <DOCKERHUB_USERNAME>/portbridge:latest --push .
+```
+
 ---
 
 ## systemd 部署
