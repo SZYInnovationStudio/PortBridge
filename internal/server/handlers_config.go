@@ -58,6 +58,10 @@ func (s *Server) handleUpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	// 批量更新可能旁路修改排除 IP 列表，需刷新内存缓存并同步节点
+	if _, touched := req[connLogExcludedKey]; touched {
+		s.reloadConnLogExcluded()
+	}
 	s.auditMe(c, "update_settings", "", "")
 	ok(c, s.allSettings())
 }
@@ -140,6 +144,10 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 	}
 	for k, v := range payload.Settings {
 		_ = store.SetSetting(s.db, k, v)
+	}
+	// 导入可能旁路修改排除 IP 列表，需刷新内存缓存并同步节点
+	if _, touched := payload.Settings[connLogExcludedKey]; touched {
+		s.reloadConnLogExcluded()
 	}
 	s.auditMe(c, "import_config", "", "")
 	ok(c, gin.H{"created": created, "updated": updated, "skipped": skipped})

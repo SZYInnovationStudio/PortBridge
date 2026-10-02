@@ -39,14 +39,15 @@ type LocalListener struct {
 	flows map[string]*UDPFlow
 }
 
-// NewLocalListener 创建并启动本地监听；监听失败时返回错误
-func NewLocalListener(name, typ, listenAddr string, dial ConnDialer, counter *Counter, rateKB int, onError func(string)) (*LocalListener, error) {
+// NewLocalListener 创建并启动本地监听；监听失败时返回错误。
+// hook 在启动监听协程前完成赋值，避免与连接处理协程并发读写。
+func NewLocalListener(name, typ, listenAddr string, dial ConnDialer, counter *Counter, rateKB int, onError func(string), hook SessionHook) (*LocalListener, error) {
 	if counter == nil {
 		counter = &Counter{}
 	}
 	l := &LocalListener{
 		name: name, typ: typ, listenAddr: listenAddr, dial: dial,
-		counter: counter, rateKB: rateKB, onError: onError,
+		counter: counter, rateKB: rateKB, onError: onError, hook: hook,
 		stopCh: make(chan struct{}),
 		flows:  make(map[string]*UDPFlow),
 	}
@@ -77,9 +78,6 @@ func NewLocalListener(name, typ, listenAddr string, dial ConnDialer, counter *Co
 
 // Name 返回规则名
 func (l *LocalListener) Name() string { return l.name }
-
-// SetSessionHook 设置会话记录回调（用于连接记录）
-func (l *LocalListener) SetSessionHook(h SessionHook) { l.hook = h }
 
 // Running 是否处于监听状态
 func (l *LocalListener) Running() bool {

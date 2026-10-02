@@ -127,16 +127,16 @@ func (m *ruleManager) Apply(p *model.Proxy) error {
 		return m.cli.dialWorkConn(name, sessionID, typ, model.DirectionForward)
 	}
 	onErr := func(msg string) { m.SetError(p.Name, msg) }
+	// forward 方向：真实访客地址只在本地监听侧可见，登记会话记录回调并上报中转端
+	hook := func(sessionID string, peer net.Addr) func(int64, int64) {
+		return m.cli.forwardConnLog(meta, sessionID, peer)
+	}
 
-	ll, err := proxy.NewLocalListener(p.Name, p.Type, p.ListenAddr(), dial, ctr, p.RateLimitKB, onErr)
+	ll, err := proxy.NewLocalListener(p.Name, p.Type, p.ListenAddr(), dial, ctr, p.RateLimitKB, onErr, hook)
 	if err != nil {
 		m.SetError(p.Name, err.Error())
 		return err
 	}
-	// forward 方向：真实访客地址只在本地监听侧可见，登记会话记录回调并上报中转端
-	ll.SetSessionHook(func(sessionID string, peer net.Addr) func(int64, int64) {
-		return m.cli.forwardConnLog(meta, sessionID, peer)
-	})
 	m.mu.Lock()
 	m.entries[p.Name] = ll
 	m.mu.Unlock()

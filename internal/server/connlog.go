@@ -102,6 +102,13 @@ func (s *Server) setConnLogExcluded(ips []string) error {
 	return nil
 }
 
+// reloadConnLogExcluded 从 Setting 表重载排除 IP 列表并广播。
+// 用于配置导入 / 批量更新设置等旁路写入数据库后，避免内存缓存与库不一致。
+func (s *Server) reloadConnLogExcluded() {
+	s.clEx.reload()
+	s.broadcastConnLogExcluded()
+}
+
 // pushConnLogExcluded 向指定节点下发当前排除 IP 列表（登录时调用）
 func (s *Server) pushConnLogExcluded(a *Agent) {
 	payload, err := json.Marshal(protocol.ConnLogExcludePayload{OK: true, IPs: s.clEx.list()})
