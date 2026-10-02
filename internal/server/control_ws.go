@@ -115,6 +115,8 @@ func (s *Server) onAgentOnline(a *Agent, node *model.Node) {
 
 	// 下发该节点全部规则
 	go s.pushNodeSync(a.NodeName)
+	// 下发当前排除 IP 列表，保证两端列表一致
+	go s.pushConnLogExcluded(a)
 }
 
 // agentWriter 单写协程，串行发送控制消息；优先发送 sendCh，空闲时才发送 logCh 中的日志消息

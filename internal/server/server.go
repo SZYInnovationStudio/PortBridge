@@ -29,6 +29,7 @@ type Server struct {
 	pm           *ProxyManager
 	events       *eventhub.Hub
 	loginLimiter *auth.LoginLimiter
+	clEx         *connLogExcluder
 	start        time.Time
 	router       *gin.Engine
 }
@@ -40,6 +41,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	s.events = eventhub.New()
 	s.hub = newAgentHub(s)
 	s.pm = newProxyManager(s)
+	s.clEx = newConnLogExcluder(db)
 	s.router = s.buildRouter()
 	s.ensureAdmin()
 	return s

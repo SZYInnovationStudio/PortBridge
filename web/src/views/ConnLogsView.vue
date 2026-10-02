@@ -43,9 +43,32 @@
           <el-option value="remote" label="远程模式" />
         </el-select>
         <el-button size="small" :icon="Refresh" @click="reload">刷新</el-button>
+        <el-button size="small" :icon="CircleClose" @click="openExclude">排除 IP</el-button>
         <el-button size="small" type="danger" :icon="Delete" @click="clearAll">清空记录</el-button>
       </div>
     </div>
+
+    <el-dialog v-model="excludeVisible" title="排除 IP" width="520px">
+      <el-select
+        v-model="excludeIPs"
+        multiple
+        filterable
+        allow-create
+        default-first-option
+        :reserve-keyword="false"
+        placeholder="输入 IP 后回车，可添加单个或多个"
+        style="width: 100%"
+      >
+        <el-option v-for="ip in excludeOptions" :key="ip" :label="ip" :value="ip" />
+      </el-select>
+      <div class="muted sub" style="margin-top: 8px">
+        支持 IPv4 / IPv6，可添加多个；保存后被排除来源 IP 的连接将不再写入连接记录（两端一致）。
+      </div>
+      <template #footer>
+        <el-button @click="excludeVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingExclude" @click="saveExclude">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="items" size="small">
@@ -121,9 +144,15 @@
 
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Delete, Refresh } from '@element-plus/icons-vue'
+import { CircleClose, Delete, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { apiClearConnLogs, apiListConnLogs, apiSetConnLogMode } from '@/api'
+import {
+  apiClearConnLogs,
+  apiGetConnLogExcluded,
+  apiListConnLogs,
+  apiSetConnLogExcluded,
+  apiSetConnLogMode,
+} from '@/api'
 import type { ConnLogItem, ConnLogMode } from '@/api/types'
 import { useAuthStore } from '@/store/auth'
 import { useRealtimeStore } from '@/store/realtime'
@@ -144,7 +173,13 @@ const mode = ref<ConnLogMode>('mirror')
 const backend = ref<'server' | 'local'>('server')
 const loading = ref(false)
 
+const excludeVisible = ref(false)
+const excludeIPs = ref<string[]>([])
+const excludeOptions = ref<string[]>([])
+const savingExclude = ref(false)
+
 let offChange: (() => void) | null = null
+let offExcluded: (() => void) | null = null
 
 const modeText = computed(() => (mode.value === 'remote' ? '远程模式' : '镜像模式'))
 
@@ -214,11 +249,53 @@ async function clearAll() {
   reload()
 }
 
+/** 合并已排除 IP 与当前记录中的来源 IP，作为下拉候选 */
+function syncExcludeOptions(ips: string[]) {
+  const set = new Set<string>(ips)
+  for (const it of items.value) if (it.source_ip) set.add(it.source_ip)
+  excludeOptions.value = Array.from(set)
+}
+
+async function loadExcluded() {
+  try {
+    const res = await apiGetConnLogExcluded()
+    excludeIPs.value = res.ips || []
+    syncExcludeOptions(excludeIPs.value)
+  } catch {
+    /* 忽略，打开对话框时再重试 */
+  }
+}
+
+async function openExclude() {
+  excludeVisible.value = true
+  await loadExcluded()
+}
+
+async function saveExclude() {
+  savingExclude.value = true
+  try {
+    const res = await apiSetConnLogExcluded(excludeIPs.value)
+    excludeIPs.value = res.ips || []
+    syncExcludeOptions(excludeIPs.value)
+    ElMessage.success('已保存排除 IP，两端已同步')
+    excludeVisible.value = false
+  } finally {
+    savingExclude.value = false
+  }
+}
+
 onMounted(() => {
   load()
+  loadExcluded()
   // 连接记录变化时自动刷新（mirror 模式下发 / remote 变更通知）
   offChange = rt.on('conn_log_change', () => {
     if (page.value === 1) load()
+  })
+  // 排除 IP 列表变更时同步（两端一致）
+  offExcluded = rt.on('conn_log_excluded', (d) => {
+    const ips = ((d as { ips?: string[] })?.ips || []) as string[]
+    excludeIPs.value = ips
+    syncExcludeOptions(ips)
   })
 })
 
@@ -228,6 +305,7 @@ onActivated(() => {
 
 onBeforeUnmount(() => {
   if (offChange) offChange()
+  if (offExcluded) offExcluded()
 })
 </script>
 

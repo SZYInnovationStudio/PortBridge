@@ -3,8 +3,10 @@
 package connlog
 
 import (
+	"encoding/json"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -255,4 +257,58 @@ func millisToTime(ms int64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(ms)
+}
+
+// NormalizeIP 规范化 IP 字符串：去除空白与 IPv6 方括号，并把 v4-mapped（::ffff:）统一为点分形式；
+// 无法解析时返回去空白后的原始字符串（仍可按原样精确匹配）。
+func NormalizeIP(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.Trim(s, "[]")
+	if ip := net.ParseIP(s); ip != nil {
+		return ip.String()
+	}
+	return s
+}
+
+// NormalizeList 规范化并去重 IP 列表，保持首次出现顺序
+func NormalizeList(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		n := NormalizeIP(s)
+		if n == "" {
+			continue
+		}
+		if _, ok := seen[n]; ok {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
+// ParseExcluded 解析排除 IP 配置（JSON 数组字符串）并规范化
+func ParseExcluded(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
+		return nil
+	}
+	return NormalizeList(arr)
+}
+
+// MarshalExcluded 序列化排除 IP 列表为 JSON 数组字符串
+func MarshalExcluded(ips []string) string {
+	b, err := json.Marshal(NormalizeList(ips))
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }

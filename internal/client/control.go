@@ -341,6 +341,9 @@ func (c *Client) dispatch(cc *controlConn, msg protocol.Message) {
 	case protocol.MsgConnLogResp:
 		go c.handleConnLogResp(msg)
 
+	case protocol.MsgConnLogExclude:
+		go c.handleConnLogExclude(msg)
+
 	case protocol.MsgError:
 		em, err := protocol.Decode[protocol.ErrorMsg](msg)
 		if err == nil {

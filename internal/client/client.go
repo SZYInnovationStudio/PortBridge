@@ -42,6 +42,7 @@ type Client struct {
 	latencyMs  int
 	lastErr    string
 	clMode     string
+	clExcluded []string
 	cc         *controlConn
 }
 

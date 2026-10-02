@@ -174,6 +174,11 @@ export interface ConnLogListResult {
   backend: ConnLogBackend
 }
 
+/** 连接记录排除 IP 列表（由中转端统一维护） */
+export interface ConnLogExcludedResult {
+  ips: string[]
+}
+
 export interface PortCheckResult {
   port: number
   type: string

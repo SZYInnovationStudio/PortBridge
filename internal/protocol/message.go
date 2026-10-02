@@ -29,6 +29,10 @@ const (
 	MsgConnLogQuery  MsgType = "conn_log_query"  // 原站端 -> 中转端：远程查询
 	MsgConnLogResp   MsgType = "conn_log_resp"   // 中转端 -> 原站端：查询结果
 	MsgConnLogClear  MsgType = "conn_log_clear"  // 清空指令
+
+	// 排除 IP：被排除的来源 IP 不写入连接记录
+	MsgConnLogExclude    MsgType = "conn_log_exclude"     // 中转端 -> 原站端：下发排除 IP 列表
+	MsgConnLogExcludeSet MsgType = "conn_log_exclude_set" // 原站端 -> 中转端：设置排除 IP 列表
 )
 
 // Message 统一消息信封
@@ -197,4 +201,11 @@ type ConnLogRespPayload struct {
 // ConnLogClearPayload 清空指令
 type ConnLogClearPayload struct {
 	From string `json:"from"` // server | client
+}
+
+// ConnLogExcludePayload 排除 IP 列表（双向）：IPs 为全量列表，OK/Msg 用于设置回执
+type ConnLogExcludePayload struct {
+	OK  bool     `json:"ok"`
+	Msg string   `json:"msg,omitempty"`
+	IPs []string `json:"ips"`
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -70,4 +71,27 @@ func (s *Server) handleSetConnLogMode(c *gin.Context) {
 	}
 	s.auditMe(c, "set_conn_log_mode", mode, "")
 	ok(c, gin.H{"mode": mode})
+}
+
+// handleGetConnLogExcluded 返回当前排除 IP 列表
+func (s *Server) handleGetConnLogExcluded(c *gin.Context) {
+	ok(c, gin.H{"ips": s.connLogExcludedList()})
+}
+
+// handleSetConnLogExcluded 覆盖设置排除 IP 列表：命中的来源 IP 不再写入连接记录
+func (s *Server) handleSetConnLogExcluded(c *gin.Context) {
+	var req struct {
+		IPs []string `json:"ips"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if err := s.setConnLogExcluded(req.IPs); err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ips := s.connLogExcludedList()
+	s.auditMe(c, "set_conn_log_excluded", strings.Join(ips, ","), "")
+	ok(c, gin.H{"ips": ips})
 }

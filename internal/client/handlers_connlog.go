@@ -3,6 +3,7 @@ package client
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -70,4 +71,28 @@ func (c *Client) handleClearConnLogs(ctx *gin.Context) {
 	c.connLogNotify(map[string]any{"reset": true})
 	c.auditMe(ctx, "clear_conn_logs", "", "")
 	ok(ctx, nil)
+}
+
+// handleGetConnLogExcluded 返回缓存的排除 IP 列表（由中转端统一维护）
+func (c *Client) handleGetConnLogExcluded(ctx *gin.Context) {
+	ok(ctx, gin.H{"ips": c.connLogExcluded()})
+}
+
+// handleSetConnLogExcluded 更新排除 IP 列表：需在线，经控制通道提交给中转端统一生效
+func (c *Client) handleSetConnLogExcluded(ctx *gin.Context) {
+	var req struct {
+		IPs []string `json:"ips"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		fail(ctx, http.StatusBadRequest, "参数错误")
+		return
+	}
+	ips := connlog.NormalizeList(req.IPs)
+	if !c.send(mustMsg(protocol.MsgConnLogExcludeSet, protocol.ConnLogExcludePayload{IPs: ips})) {
+		fail(ctx, http.StatusServiceUnavailable, "未连接中转端，无法修改排除 IP 列表")
+		return
+	}
+	c.setConnLogExcludedLocal(ips)
+	c.auditMe(ctx, "set_conn_log_excluded", strings.Join(ips, ","), "")
+	ok(ctx, gin.H{"ips": ips})
 }

@@ -261,6 +261,9 @@ func (h *AgentHub) dispatch(a *Agent, msg protocol.Message) {
 
 	case protocol.MsgConnLogClear:
 		go h.srv.handleConnLogClear(a, msg)
+
+	case protocol.MsgConnLogExcludeSet:
+		go h.srv.handleConnLogExcludeSet(a, msg)
 	}
 }
 

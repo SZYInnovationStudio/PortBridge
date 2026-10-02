@@ -144,6 +144,37 @@ func (c *Client) handleConnLogResp(msg protocol.Message) {
 	c.clRPC.deliver(msg.Seq, p)
 }
 
+// handleConnLogExclude 接收中转端下发的排除 IP 列表（登录时与变更时）
+func (c *Client) handleConnLogExclude(msg protocol.Message) {
+	p, err := protocol.Decode[protocol.ConnLogExcludePayload](msg)
+	if err != nil {
+		return
+	}
+	ips := connlog.NormalizeList(p.IPs)
+	c.mu.Lock()
+	c.clExcluded = ips
+	c.mu.Unlock()
+	c.events.Broadcast("conn_log_excluded", map[string]any{"ips": ips})
+}
+
+// connLogExcluded 读取缓存的排除 IP 列表
+func (c *Client) connLogExcluded() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, len(c.clExcluded))
+	copy(out, c.clExcluded)
+	return out
+}
+
+// setConnLogExcludedLocal 本地缓存排除 IP 列表（提交给中转端后即时更新，随后以中转端下发为准）
+func (c *Client) setConnLogExcludedLocal(ips []string) {
+	ips = connlog.NormalizeList(ips)
+	c.mu.Lock()
+	c.clExcluded = ips
+	c.mu.Unlock()
+	c.events.Broadcast("conn_log_excluded", map[string]any{"ips": ips})
+}
+
 // pullConnLogs 登录后以本地镜像游标为起点做增量对账
 func (c *Client) pullConnLogs() {
 	c.pullConnLogsFrom(connlog.MaxSrcID(c.db))

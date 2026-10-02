@@ -41,6 +41,7 @@ func (s *Server) buildRouter() *gin.Engine {
 		a.GET("/logs", s.handleLogs)
 
 		a.GET("/conn-logs", s.handleListConnLogs)
+		a.GET("/conn-logs/excluded-ips", s.handleGetConnLogExcluded)
 
 		a.GET("/settings", s.handleGetSettings)
 		a.GET("/config/export", s.handleExportConfig)
@@ -62,6 +63,7 @@ func (s *Server) buildRouter() *gin.Engine {
 
 			adm.DELETE("/conn-logs", s.handleClearConnLogs)
 			adm.PUT("/conn-logs/mode", s.handleSetConnLogMode)
+			adm.PUT("/conn-logs/excluded-ips", s.handleSetConnLogExcluded)
 
 			adm.PUT("/settings", s.handleUpdateSettings)
 			adm.POST("/config/import", s.handleImportConfig)

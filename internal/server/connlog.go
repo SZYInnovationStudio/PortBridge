@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"portbridge/internal/connlog"
 	"portbridge/internal/loghub"
@@ -17,12 +20,124 @@ import (
 // connLogModeKey 连接记录模式的配置键（存于 Setting 表）
 const connLogModeKey = "conn_log_mode"
 
+// connLogExcludedKey 排除 IP 列表的配置键（存于 Setting 表，值为 JSON 数组字符串）
+const connLogExcludedKey = "conn_log_excluded_ips"
+
 // connLogMode 当前连接记录模式（中转端统一控制，默认 mirror）
 func (s *Server) connLogMode() string {
 	if store.GetSetting(s.db, connLogModeKey, connlog.ModeMirror) == connlog.ModeRemote {
 		return connlog.ModeRemote
 	}
 	return connlog.ModeMirror
+}
+
+// connLogExcluder 排除 IP 列表的内存缓存：避免每建一条连接都查库。
+// 权威列表存于 Setting 表，启动时加载，变更时由中转端统一刷新。
+type connLogExcluder struct {
+	db  *gorm.DB
+	mu  sync.RWMutex
+	ips []string
+	set map[string]struct{}
+}
+
+func newConnLogExcluder(db *gorm.DB) *connLogExcluder {
+	e := &connLogExcluder{db: db, set: map[string]struct{}{}}
+	e.reload()
+	return e
+}
+
+// reload 从 Setting 表重新加载
+func (e *connLogExcluder) reload() {
+	e.replace(connlog.ParseExcluded(store.GetSetting(e.db, connLogExcludedKey, "")))
+}
+
+// replace 以规范化并去重后的列表整体替换缓存
+func (e *connLogExcluder) replace(ips []string) {
+	ips = connlog.NormalizeList(ips)
+	set := make(map[string]struct{}, len(ips))
+	for _, ip := range ips {
+		set[ip] = struct{}{}
+	}
+	e.mu.Lock()
+	e.ips = ips
+	e.set = set
+	e.mu.Unlock()
+}
+
+// list 返回排除 IP 列表的快照
+func (e *connLogExcluder) list() []string {
+	if e == nil {
+		return nil
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]string, len(e.ips))
+	copy(out, e.ips)
+	return out
+}
+
+// contains 判断来源 IP 是否被排除（空 IP 不排除）
+func (e *connLogExcluder) contains(ip string) bool {
+	if e == nil || ip == "" {
+		return false
+	}
+	n := connlog.NormalizeIP(ip)
+	e.mu.RLock()
+	_, hit := e.set[n]
+	e.mu.RUnlock()
+	return hit
+}
+
+// connLogExcludedList 当前排除 IP 列表快照
+func (s *Server) connLogExcludedList() []string { return s.clEx.list() }
+
+// setConnLogExcluded 覆盖设置排除 IP 列表：持久化 + 刷新缓存 + 广播到所有在线节点
+func (s *Server) setConnLogExcluded(ips []string) error {
+	ips = connlog.NormalizeList(ips)
+	if err := store.SetSetting(s.db, connLogExcludedKey, connlog.MarshalExcluded(ips)); err != nil {
+		return err
+	}
+	s.clEx.replace(ips)
+	s.broadcastConnLogExcluded()
+	return nil
+}
+
+// pushConnLogExcluded 向指定节点下发当前排除 IP 列表（登录时调用）
+func (s *Server) pushConnLogExcluded(a *Agent) {
+	payload, err := json.Marshal(protocol.ConnLogExcludePayload{OK: true, IPs: s.clEx.list()})
+	if err != nil {
+		return
+	}
+	a.send(protocol.Message{Type: protocol.MsgConnLogExclude, Ts: time.Now().UnixMilli(), Data: payload})
+}
+
+// broadcastConnLogExcluded 向所有在线节点下发最新排除 IP 列表并通知 Web UI
+func (s *Server) broadcastConnLogExcluded() {
+	ips := s.clEx.list()
+	payload, err := json.Marshal(protocol.ConnLogExcludePayload{OK: true, IPs: ips})
+	if err != nil {
+		return
+	}
+	msg := protocol.Message{Type: protocol.MsgConnLogExclude, Ts: time.Now().UnixMilli(), Data: payload}
+	for name := range s.hub.OnlineNodes() {
+		_ = s.hub.Send(name, msg)
+	}
+	s.events.Broadcast("conn_log_excluded", map[string]any{"ips": ips})
+}
+
+// handleConnLogExcludeSet 处理原站端提交的排除 IP 列表设置
+func (s *Server) handleConnLogExcludeSet(a *Agent, msg protocol.Message) {
+	p, err := protocol.Decode[protocol.ConnLogExcludePayload](msg)
+	if err != nil {
+		return
+	}
+	if err := s.setConnLogExcluded(p.IPs); err != nil {
+		loghub.Default.Publish("warn", fmt.Sprintf("节点 %s 更新排除 IP 列表失败: %v", a.NodeName, err))
+		ack, _ := protocol.NewMessage(protocol.MsgConnLogExclude, protocol.ConnLogExcludePayload{OK: false, Msg: err.Error(), IPs: s.clEx.list()})
+		a.send(ack)
+		return
+	}
+	loghub.Default.Publish("info", fmt.Sprintf("节点 %s 更新排除 IP 列表（共 %d 条）", a.NodeName, len(s.clEx.list())))
 }
 
 // connRecord 一条进行中的连接记录句柄；所有方法对 nil 安全
@@ -48,6 +163,10 @@ func (s *Server) connLogBegin(meta *proxyMeta, sessionID string, addr net.Addr) 
 	srcIP, srcPort := "", 0
 	if addr != nil {
 		srcIP, srcPort = connlog.SplitHostPort(addr.String())
+	}
+	// 被排除的来源 IP 不记录（返回 nil 句柄，不影响转发；nil 句柄方法均安全）
+	if s.clEx.contains(srcIP) {
+		return nil
 	}
 	l := &model.ConnLog{
 		SessionID:  sessionID,
@@ -114,6 +233,10 @@ func (s *Server) handleConnLogReport(a *Agent, msg protocol.Message) {
 	}
 	for _, it := range report.Items {
 		if it.SessionID == "" {
+			continue
+		}
+		// 被排除的来源 IP 不记录
+		if s.clEx.contains(it.SourceIP) {
 			continue
 		}
 		if it.NodeName == "" {

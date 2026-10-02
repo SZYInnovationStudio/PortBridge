@@ -1,5 +1,6 @@
 import { request } from './http'
 import type {
+  ConnLogExcludedResult,
   ConnLogListResult,
   ConnLogMode,
   ExportPayload,
@@ -94,6 +95,12 @@ export const apiClearConnLogs = () => request<null>({ url: '/conn-logs', method:
 
 export const apiSetConnLogMode = (mode: ConnLogMode) =>
   request<{ mode: ConnLogMode }>({ url: '/conn-logs/mode', method: 'put', data: { mode } })
+
+export const apiGetConnLogExcluded = () =>
+  request<ConnLogExcludedResult>({ url: '/conn-logs/excluded-ips', method: 'get' })
+
+export const apiSetConnLogExcluded = (ips: string[]) =>
+  request<ConnLogExcludedResult>({ url: '/conn-logs/excluded-ips', method: 'put', data: { ips } })
 
 export const apiExportConfig = () => request<ExportPayload>({ url: '/config/export', method: 'get' })
 
