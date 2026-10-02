@@ -31,7 +31,7 @@ COPY --from=web /app/web/dist /app/web/dist
 RUN mkdir -p /app/data /app/config && chown -R portbridge:portbridge /app
 USER portbridge
 
-EXPOSE 13255 13256
+EXPOSE 23255 23256
 VOLUME ["/app/data"]
 
 ENTRYPOINT ["/app/portbridge"]

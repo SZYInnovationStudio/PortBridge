@@ -22,15 +22,15 @@ services:
     environment:
       PORTBRIDGE_ROLE: server
       PORTBRIDGE_NODE_NAME: beijing-relay
-      PORTBRIDGE_ADMIN_PORT: "13255"
+      PORTBRIDGE_ADMIN_PORT: "23255"
       PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
       PORTBRIDGE_DSN: "/app/data/portbridge.db"
     volumes:
       - ./deploy/data/server:/app/data
       - ./deploy/config/server:/app/config:ro
     ports:
-      - "13255:13255"   # 管理面：Web UI + REST + 控制通道
-      - "13256:13256"   # 数据面：裸 TCP 数据通道
+      - "23255:23255"   # 管理面：Web UI + REST + 控制通道
+      - "23256:23256"   # 数据面：裸 TCP 数据通道
       # 下面按需映射实际使用的公网转发端口（需与规则中的监听端口一致）
       - "8080:8080"
       - "2222:2222/udp"
@@ -50,17 +50,17 @@ services:
       PORTBRIDGE_ROLE: client
       PORTBRIDGE_NODE_NAME: ningbo-origin
       # 中转端地址（管理面端口）与数据面地址，例如：
-      PORTBRIDGE_SERVER_ADDR: "relay.example.com:13255"
-      PORTBRIDGE_SERVER_DATA_ADDR: "relay.example.com:13256"
+      PORTBRIDGE_SERVER_ADDR: "relay.example.com:23255"
+      PORTBRIDGE_SERVER_DATA_ADDR: "relay.example.com:23256"
       PORTBRIDGE_TOKEN: "replace-with-node-token"
-      PORTBRIDGE_ADMIN_PORT: "13255"
+      PORTBRIDGE_ADMIN_PORT: "23255"
       PORTBRIDGE_JWT_SECRET: "please-change-this-jwt-secret"
       PORTBRIDGE_DSN: "/app/data/portbridge.db"
     volumes:
       - ./deploy/data/client:/app/data
       - ./deploy/config/client:/app/config:ro
     ports:
-      - "13255:13255"   # 原站端本地管理界面
+      - "23255:23255"   # 原站端本地管理界面
     networks:
       - portbridge
 

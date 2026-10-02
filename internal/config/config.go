@@ -23,18 +23,18 @@ type Config struct {
 	Role     Role   `yaml:"role"`
 	NodeName string `yaml:"node_name"`
 
-	// 管理面（Web UI + REST + 控制通道），默认 :13255
+	// 管理面（Web UI + REST + 控制通道），默认 :23255
 	AdminAddr string `yaml:"admin_addr"`
 	AdminPort int    `yaml:"admin_port"`
 	JWTSecret string `yaml:"jwt_secret"`
 
-	// 数据面（裸 TCP），默认 :13256
+	// 数据面（裸 TCP），默认 :23256
 	DataAddr string `yaml:"data_addr"`
 	DataPort int    `yaml:"data_port"`
 
 	// 原站端专用：中转端地址与预共享密钥
-	ServerAddr     string `yaml:"server_addr"`      // 例如 203.0.113.10:13255
-	ServerDataAddr string `yaml:"server_data_addr"` // 例如 203.0.113.10:13256，可留空自动推导
+	ServerAddr     string `yaml:"server_addr"`      // 例如 203.0.113.10:23255
+	ServerDataAddr string `yaml:"server_data_addr"` // 例如 203.0.113.10:23256，可留空自动推导
 	Token          string `yaml:"token"`
 
 	DBDriver string `yaml:"db_driver"` // sqlite | postgres
@@ -61,13 +61,13 @@ func (c *Config) applyDefaults() {
 		c.NodeName = host
 	}
 	if c.AdminPort == 0 {
-		c.AdminPort = 13255
+		c.AdminPort = 23255
 	}
 	if c.AdminAddr == "" {
 		c.AdminAddr = fmt.Sprintf("0.0.0.0:%d", c.AdminPort)
 	}
 	if c.DataPort == 0 {
-		c.DataPort = 13256
+		c.DataPort = 23256
 	}
 	if c.DataAddr == "" {
 		c.DataAddr = fmt.Sprintf("0.0.0.0:%d", c.DataPort)

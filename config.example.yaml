@@ -17,19 +17,19 @@ role: server
 node_name: beijing-relay
 
 # ---------- 管理面（Web UI + REST API + 控制通道） ----------
-# 默认监听 0.0.0.0:13255，两端默认都用 13255
-admin_port: 13255
+# 默认监听 0.0.0.0:23255，两端默认都用 23255
+admin_port: 23255
 # 如需单独指定监听地址，可显式覆盖（留空则自动使用 0.0.0.0:<admin_port>）
 admin_addr: ""
 # JWT 签名密钥，生产环境务必修改为随机强口令
 jwt_secret: "please-change-this-jwt-secret"
 
 # ---------- 数据面（裸 TCP 数据通道） ----------
-data_port: 13256
+data_port: 23256
 data_addr: ""
 
 # ---------- 原站端专用（server 角色留空即可） ----------
-# 中转端管理面地址，例如 203.0.113.10:13255
+# 中转端管理面地址，例如 203.0.113.10:23255
 server_addr: ""
 # 中转端数据面地址，留空则用 server_addr 的主机 + data_port 自动推导
 server_data_addr: ""

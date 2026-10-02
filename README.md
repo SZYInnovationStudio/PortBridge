@@ -36,8 +36,8 @@ PortBridge 是一套**仅限 Linux 运行**的类 FRP 四层端口转发 / 端�
    └──────────┘      │  北京阿里云 · 公网 IP   │ 主动 │  宁波电信 / 内网       │
                      │                       │ 连接 │                      │
    访问 公网IP:8080  │  监听 :8080 ──────────┼──────┼──▶ 转发到 127.0.0.1:80 │
-                     │  管理面 :13255         │      │  管理面 :13255        │
-                     │  数据面 :13256         │      │                      │
+                     │  管理面 :23255         │      │  管理面 :23255        │
+                     │  数据面 :23256         │      │                      │
                      └───────────────────────┘      └──────────────────────┘
 ```
 
@@ -50,15 +50,15 @@ PortBridge 是一套**仅限 Linux 运行**的类 FRP 四层端口转发 / 端�
 
 **控制面 / 数据面分离：**
 
-- **控制面**：`WebSocket + JSON`，走管理端口 `13255`，路径 `/api/v1/agent/control`，
+- **控制面**：`WebSocket + JSON`，走管理端口 `23255`，路径 `/api/v1/agent/control`，
   用于节点注册、心跳、规则同步、下发建连指令。
-- **数据面**：裸 `TCP`，走数据端口 `13256`，用于承载真正的转发流量。
+- **数据面**：裸 `TCP`，走数据端口 `23256`，用于承载真正的转发流量。
 
 **一次 TCP 转发的完整链路（on-demand work connection）：**
 
 1. 用户连接中转端公网 `IP:端口`，中转端生成 `sessionID`；
 2. 中转端通过控制通道下发 `new_work_conn` 指令；
-3. 原站端据此**主动** dial 中转端的数据端口 `13256`；
+3. 原站端据此**主动** dial 中转端的数据端口 `23256`；
 4. 原站端发送首行 JSON 握手，携带 `HMAC-SHA256` 签名；
 5. 中转端校验签名、放行（无有效握手直接静默 Close，抵御端口扫描）；
 6. 两端建立 TCP 双向桥接；原站端再连接本地真实目标，完成透明转发。
@@ -86,11 +86,11 @@ PortBridge 是一套**仅限 Linux 运行**的类 FRP 四层端口转发 / 端�
 
 | 端口 | 协议 | 用途 | 是否必须 |
 | --- | --- | --- | --- |
-| `13255` | TCP | 管理面：Web UI + REST API + 控制通道（WebSocket） | 两端均默认开放 |
-| `13256` | TCP | 数据面：裸 TCP 数据通道 | 中转端必须对原站端开放 |
+| `23255` | TCP | 管理面：Web UI + REST API + 控制通道（WebSocket） | 两端均默认开放 |
+| `23256` | TCP | 数据面：裸 TCP 数据通道 | 中转端必须对原站端开放 |
 | 业务端口（如 `8080`） | TCP / UDP | 实际对外发布的转发端口 | 按规则配置 |
 
-> 管理端口默认 **13255**，两端一致，可配置。
+> 管理端口默认 **23255**，两端一致，可配置。
 
 ---
 
@@ -122,7 +122,7 @@ vi config.yaml        # 修改 jwt_secret、ip_whitelist 等
 ./bin/portbridge -c config.yaml
 ```
 
-启动后访问 `http://<公网IP>:13255`，首次登录使用默认账号：
+启动后访问 `http://<公网IP>:23255`，首次登录使用默认账号：
 
 - 用户名：`admin`
 - 密码：`admin123`
@@ -137,7 +137,7 @@ vi config.yaml        # 填写 server_addr / server_data_addr / token / node_nam
 ./bin/portbridge -c config.yaml
 ```
 
-访问原站端本地管理界面 `http://127.0.0.1:13255` 即可管理本端规则。
+访问原站端本地管理界面 `http://127.0.0.1:23255` 即可管理本端规则。
 
 ---
 
@@ -149,7 +149,7 @@ vi config.yaml        # 填写 server_addr / server_data_addr / token / node_nam
 
 2. **在原站端填写连接信息**
    - 打开原站端 Web → 「系统设置」，或直接编辑原站端 `config.yaml`：
-     - `server_addr`：中转端 `IP:13255`
+     - `server_addr`：中转端 `IP:23255`
      - `token`：上一步的一次性密钥
      - `node_name`：与中转端创建的节点名一致
    - 保存后原站端会自动连接，节点状态变为**在线**。
@@ -187,7 +187,7 @@ docker compose --profile client up -d client
 ```bash
 docker build -t portbridge:latest .
 docker run -d --name portbridge-server \
-  -p 13255:13255 -p 13256:13256 -p 8080:8080 \
+  -p 23255:23255 -p 23256:23256 -p 8080:8080 \
   -e PORTBRIDGE_ROLE=server \
   -e PORTBRIDGE_NODE_NAME=beijing-relay \
   -e PORTBRIDGE_JWT_SECRET=change-me \
@@ -216,7 +216,7 @@ docker run -d --name portbridge-server \
 
 ```bash
 docker run -d --name portbridge-server \
-  -p 13255:13255 -p 13256:13256 -p 8080:8080 \
+  -p 23255:23255 -p 23256:23256 -p 8080:8080 \
   -e PORTBRIDGE_ROLE=server \
   -e PORTBRIDGE_JWT_SECRET=change-me \
   -v $PWD/data:/app/data \
@@ -272,7 +272,7 @@ sudo systemctl status portbridge-server
 | --- | --- | --- |
 | `PORTBRIDGE_ROLE` | `role` | `server` / `client` |
 | `PORTBRIDGE_NODE_NAME` | `node_name` | 本端节点名 |
-| `PORTBRIDGE_ADMIN_PORT` | `admin_port` | 管理端口（默认 13255） |
+| `PORTBRIDGE_ADMIN_PORT` | `admin_port` | 管理端口（默认 23255） |
 | `PORTBRIDGE_SERVER_ADDR` | `server_addr` | 原站端专用：中转端管理面地址 |
 | `PORTBRIDGE_SERVER_DATA_ADDR` | `server_data_addr` | 原站端专用：中转端数据面地址 |
 | `PORTBRIDGE_TOKEN` | `token` | 原站端专用：节点密钥 |
@@ -300,13 +300,13 @@ sudo systemctl status portbridge-server
 
 ## 本地开发
 
-**后端**（默认监听 `13255`）：
+**后端**（默认监听 `23255`）：
 
 ```bash
 go run ./cmd/portbridge -c config.yaml
 ```
 
-**前端**（Vite Dev Server，自动代理 `/api` 与 WebSocket 到 `127.0.0.1:13255`）：
+**前端**（Vite Dev Server，自动代理 `/api` 与 WebSocket 到 `127.0.0.1:23255`）：
 
 ```bash
 cd web

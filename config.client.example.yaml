@@ -16,21 +16,21 @@ role: client
 node_name: ningbo-origin
 
 # ---------- 连接中转端 ----------
-# 中转端管理面地址，例如 203.0.113.10:13255 或 relay.example.com:13255
-server_addr: "203.0.113.10:13255"
+# 中转端管理面地址，例如 203.0.113.10:23255 或 relay.example.com:23255
+server_addr: "203.0.113.10:23255"
 # 中转端数据面地址，留空则用 server_addr 的主机 + data_port 自动推导
 server_data_addr: ""
 # 节点预共享密钥：在中转端创建节点时生成的一次性密钥
 token: "replace-with-node-token"
 
 # ---------- 本地管理面（Web UI + REST API） ----------
-# 与中转端保持一致，默认 13255
-admin_port: 13255
+# 与中转端保持一致，默认 23255
+admin_port: 23255
 admin_addr: ""
 jwt_secret: "please-change-this-jwt-secret"
 
 # ---------- 数据面（通常无需修改） ----------
-data_port: 13256
+data_port: 23256
 data_addr: ""
 
 # ---------- 数据库 ----------
