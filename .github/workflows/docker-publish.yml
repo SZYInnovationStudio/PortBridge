@@ -1,8 +1,9 @@
 name: Build and Publish Docker Image
 
 # 触发方式：
-#   1) 推送 v* 标签（如 v0.1.0）自动发布；
-#   2) 在 Actions 页面手动触发（workflow_dispatch），可指定版本号。
+#   1) 推送 main 分支     → 自动发布，版本号自动递增（0.1.<提交数>）+ 更新 latest；
+#   2) 推送 v* 标签（如 v0.2.0） → 按语义化版本发布（v0.2.0 / 0.2.0 / 0.2）+ 更新 latest；
+#   3) Actions 页面手动触发，可指定版本号（留空则自动生成）。
 #
 # 使用前需在仓库 Settings → Secrets and variables → Actions 中配置：
 #   DOCKERHUB_USERNAME : Docker Hub 用户名
@@ -10,12 +11,14 @@ name: Build and Publish Docker Image
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "镜像版本标签（留空则使用 latest）"
+        description: "镜像版本标签（留空则自动生成 0.1.<提交数>）"
         required: false
         default: ""
 
@@ -30,16 +33,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 需要完整提交历史，用于生成递增的版本号
+          fetch-depth: 0
 
       - name: Resolve version
         id: ver
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
+            # 手动打的语义化标签，如 v0.2.0
             echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.inputs.version }}" ]; then
+            # 手动触发并指定了版本号
             echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=latest" >> "$GITHUB_OUTPUT"
+            # 自动生成：0.1.<提交总数>，每次提交自动 +1
+            COUNT=$(git rev-list --count HEAD)
+            echo "value=0.1.${COUNT}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up QEMU
@@ -64,7 +74,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version != '' }}
+            type=raw,value=${{ steps.ver.outputs.value }},enable=${{ github.ref_type != 'tag' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
