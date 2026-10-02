@@ -13,6 +13,10 @@ import (
 // ConnDialer 建立一条用于承载用户流量的工作连接（已完成后端配对）
 type ConnDialer func(proxyName, sessionID, typ string) (net.Conn, error)
 
+// SessionHook 在本地会话建立时回调，返回的回调函数会在会话结束时被调用（携带该会话上下行字节数）。
+// 用于 forward 方向的连接记录：真实访客地址只在本地监听侧可见。
+type SessionHook func(sessionID string, peer net.Addr) func(bytesIn, bytesOut int64)
+
 // LocalListener 本地监听端口，并将每条到达的用户连接/会话桥接到一条新建的工作连接。
 // 适用于 forward 方向（原站端本地监听 -> 中转端侧目标）以及 UDP 会话场景。
 type LocalListener struct {
@@ -23,6 +27,7 @@ type LocalListener struct {
 	counter    *Counter
 	rateKB     int
 	onError    func(string)
+	hook       SessionHook
 
 	stopCh chan struct{}
 	once   sync.Once
@@ -72,6 +77,9 @@ func NewLocalListener(name, typ, listenAddr string, dial ConnDialer, counter *Co
 
 // Name 返回规则名
 func (l *LocalListener) Name() string { return l.name }
+
+// SetSessionHook 设置会话记录回调（用于连接记录）
+func (l *LocalListener) SetSessionHook(h SessionHook) { l.hook = h }
 
 // Running 是否处于监听状态
 func (l *LocalListener) Running() bool {
@@ -130,15 +138,25 @@ func (l *LocalListener) serveTCP() {
 }
 
 func (l *LocalListener) handleTCPConn(c net.Conn) {
-	wc, err := l.dial(l.name, util.NewID("s"), l.typ)
+	sessionID := util.NewID("s")
+	wc, err := l.dial(l.name, sessionID, l.typ)
 	if err != nil {
 		l.report(fmt.Sprintf("规则 %s 建立工作连接失败: %v", l.name, err))
 		_ = c.Close()
 		return
 	}
+	mirror := &Counter{}
+	var end func(int64, int64)
+	if l.hook != nil {
+		end = l.hook(sessionID, c.RemoteAddr())
+	}
 	l.counter.IncConn()
-	Bridge(WrapConn(c, l.counter, l.rateKB), wc)
+	Bridge(WrapConnDual(c, l.counter, mirror, l.rateKB), wc)
 	l.counter.DecConn()
+	if end != nil {
+		in, out, _, _ := mirror.Snapshot()
+		end(in, out)
+	}
 }
 
 // serveUDP 接收用户数据报并按源地址维护会话
@@ -181,15 +199,25 @@ func (l *LocalListener) getOrCreateFlow(addr *net.UDPAddr) *UDPFlow {
 }
 
 func (l *LocalListener) setupFlow(key string, f *UDPFlow) {
-	wc, err := l.dial(l.name, util.NewID("s"), "udp")
+	sessionID := util.NewID("s")
+	wc, err := l.dial(l.name, sessionID, "udp")
 	if err != nil {
 		l.report(fmt.Sprintf("规则 %s 建立 UDP 会话失败: %v", l.name, err))
 		l.removeFlow(key, f)
 		return
 	}
+	mirror := &Counter{}
+	var end func(int64, int64)
+	if l.hook != nil {
+		end = l.hook(sessionID, f.Peer())
+	}
 	l.counter.IncConn()
-	RelayUDP(wc, f, l.counter)
+	RelayUDP(wc, f, l.counter, mirror)
 	l.counter.DecConn()
+	if end != nil {
+		in, out, _, _ := mirror.Snapshot()
+		end(in, out)
+	}
 	l.removeFlow(key, f)
 }
 

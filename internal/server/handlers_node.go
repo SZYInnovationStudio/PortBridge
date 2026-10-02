@@ -137,11 +137,14 @@ func (s *Server) handleDeleteNode(c *gin.Context) {
 		s.pm.Remove(proxies[i].Name)
 	}
 	s.db.Where("node_name = ?", node.Name).Delete(&model.Proxy{})
+	// 一并清理该节点的连接记录（含访客真实 IP，避免残留）
+	s.db.Where("node_name = ?", node.Name).Delete(&model.ConnLog{})
 	if a := s.hub.Get(node.Name); a != nil {
 		a.close()
 	}
 	s.db.Delete(&node)
 	s.events.Broadcast("node_deleted", map[string]any{"name": node.Name})
+	s.events.Broadcast("conn_log_change", map[string]any{"reset": true})
 	s.auditMe(c, "delete_node", node.Name, "")
 	ok(c, nil)
 }

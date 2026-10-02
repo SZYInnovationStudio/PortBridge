@@ -20,6 +20,15 @@ const (
 	MsgStatusReport  MsgType = "status_report"
 	MsgTrafficReport MsgType = "traffic_report"
 	MsgError         MsgType = "error"
+
+	// 连接记录相关
+	MsgConnLogEvent  MsgType = "conn_log_event"  // 中转端 -> 原站端：镜像单条记录
+	MsgConnLogReport MsgType = "conn_log_report" // 原站端 -> 中转端：上报 forward 记录
+	MsgConnLogPull   MsgType = "conn_log_pull"   // 原站端 -> 中转端：拉取对账
+	MsgConnLogSync   MsgType = "conn_log_sync"   // 中转端 -> 原站端：对账数据
+	MsgConnLogQuery  MsgType = "conn_log_query"  // 原站端 -> 中转端：远程查询
+	MsgConnLogResp   MsgType = "conn_log_resp"   // 中转端 -> 原站端：查询结果
+	MsgConnLogClear  MsgType = "conn_log_clear"  // 清空指令
 )
 
 // Message 统一消息信封
@@ -120,4 +129,72 @@ type TrafficReport struct {
 type ErrorMsg struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+}
+
+// ConnLogItem 连接记录传输对象（时间戳为 UnixMilli）
+type ConnLogItem struct {
+	ID         uint   `json:"id"`
+	SessionID  string `json:"session_id"`
+	ProxyName  string `json:"proxy_name"`
+	NodeName   string `json:"node_name"`
+	Type       string `json:"type"`      // tcp | udp
+	Direction  string `json:"direction"` // reverse | forward
+	SourceIP   string `json:"source_ip"`
+	SourcePort int    `json:"source_port"`
+	Target     string `json:"target"`
+	StartedAt  int64  `json:"started_at"`
+	EndedAt    int64  `json:"ended_at"`
+	DurationMs int64  `json:"duration_ms"`
+	BytesIn    int64  `json:"bytes_in"`
+	BytesOut   int64  `json:"bytes_out"`
+	Status     string `json:"status"` // active | closed
+}
+
+// ConnLogEventPayload 镜像单条记录
+type ConnLogEventPayload struct {
+	Item ConnLogItem `json:"item"`
+}
+
+// ConnLogReportPayload 原站端上报 forward 记录
+type ConnLogReportPayload struct {
+	Items []ConnLogItem `json:"items"`
+}
+
+// ConnLogPullReq 拉取对账请求
+type ConnLogPullReq struct {
+	SinceID uint `json:"since_id"`
+	Limit   int  `json:"limit"`
+}
+
+// ConnLogSyncPayload 对账数据
+type ConnLogSyncPayload struct {
+	Items   []ConnLogItem `json:"items"`
+	LastID  uint          `json:"last_id"`
+	HasMore bool          `json:"has_more"`
+	MinID   uint          `json:"min_id"`
+	Total   int64         `json:"total"`
+	Mode    string        `json:"mode"` // 当前连接记录模式：mirror | remote
+}
+
+// ConnLogQueryReq 远程查询请求
+type ConnLogQueryReq struct {
+	Keyword   string `json:"keyword"`
+	ProxyName string `json:"proxy_name"`
+	Status    string `json:"status"`
+	Page      int    `json:"page"`
+	PageSize  int    `json:"page_size"`
+}
+
+// ConnLogRespPayload 查询结果
+type ConnLogRespPayload struct {
+	OK    bool          `json:"ok"`
+	Msg   string        `json:"msg,omitempty"`
+	Items []ConnLogItem `json:"items"`
+	Total int64         `json:"total"`
+	Mode  string        `json:"mode"` // 当前连接记录模式：mirror | remote
+}
+
+// ConnLogClearPayload 清空指令
+type ConnLogClearPayload struct {
+	From string `json:"from"` // server | client
 }

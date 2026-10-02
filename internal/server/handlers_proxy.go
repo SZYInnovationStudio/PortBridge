@@ -49,6 +49,14 @@ func defaultAddr(s string) string {
 	return s
 }
 
+// checkProxyPort 校验监听端口是否在配置允许的范围内（proxy_port_min ~ proxy_port_max）
+func (s *Server) checkProxyPort(port int) error {
+	if port < s.cfg.ProxyPortMin || port > s.cfg.ProxyPortMax {
+		return fmt.Errorf("监听端口必须在 %d-%d 之间", s.cfg.ProxyPortMin, s.cfg.ProxyPortMax)
+	}
+	return nil
+}
+
 // handleListProxies 规则列表（合并运行态）
 func (s *Server) handleListProxies(c *gin.Context) {
 	q := s.db.Order("id asc")
@@ -95,6 +103,10 @@ func (s *Server) handleCreateProxy(c *gin.Context) {
 	}
 	if req.RemotePort > 65535 || req.LocalPort > 65535 {
 		fail(c, http.StatusBadRequest, "端口必须在 1-65535 之间")
+		return
+	}
+	if err := s.checkProxyPort(req.RemotePort); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.NodeName == "" {
@@ -186,6 +198,10 @@ func (s *Server) handleUpdateProxy(c *gin.Context) {
 	if req.RemotePort > 0 {
 		if req.RemotePort > 65535 {
 			fail(c, http.StatusBadRequest, "端口必须在 1-65535 之间")
+			return
+		}
+		if err := s.checkProxyPort(req.RemotePort); err != nil {
+			fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		p.RemotePort = req.RemotePort

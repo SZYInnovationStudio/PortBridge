@@ -1,5 +1,7 @@
 import { request } from './http'
 import type {
+  ConnLogListResult,
+  ConnLogMode,
   ExportPayload,
   ImportResult,
   LogEntry,
@@ -78,6 +80,20 @@ export const apiGetSettings = () => request<SettingsPayload>({ url: '/settings',
 
 export const apiUpdateSettings = (data: Record<string, string>) =>
   request<Record<string, string>>({ url: '/settings', method: 'put', data })
+
+// ---------- 连接记录 ----------
+export const apiListConnLogs = (params?: {
+  page?: number
+  page_size?: number
+  keyword?: string
+  proxy_name?: string
+  status?: string
+}) => request<ConnLogListResult>({ url: '/conn-logs', method: 'get', params })
+
+export const apiClearConnLogs = () => request<null>({ url: '/conn-logs', method: 'delete' })
+
+export const apiSetConnLogMode = (mode: ConnLogMode) =>
+  request<{ mode: ConnLogMode }>({ url: '/conn-logs/mode', method: 'put', data: { mode } })
 
 export const apiExportConfig = () => request<ExportPayload>({ url: '/config/export', method: 'get' })
 

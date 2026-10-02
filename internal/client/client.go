@@ -32,6 +32,7 @@ type Client struct {
 	router *gin.Engine
 
 	loginLimiter *auth.LoginLimiter
+	clRPC        *connLogRPC
 
 	mu         sync.RWMutex
 	runID      string
@@ -40,6 +41,7 @@ type Client struct {
 	connected  bool
 	latencyMs  int
 	lastErr    string
+	clMode     string
 	cc         *controlConn
 }
 
@@ -53,6 +55,7 @@ func New(cfg *config.Config, db *gorm.DB) *Client {
 		runID:        newRunID(),
 		events:       eventhub.New(),
 		loginLimiter: auth.NewLoginLimiter(),
+		clRPC:        newConnLogRPC(),
 	}
 	c.rules = newRuleManager(c)
 	c.router = c.buildRouter()
@@ -170,6 +173,17 @@ func (c *Client) send(msg protocol.Message) bool {
 		return false
 	}
 	return cc.send(msg)
+}
+
+// sendLog 通过当前控制连接最佳努力发送日志类消息（连接记录上报等），不阻塞、队列满时丢弃
+func (c *Client) sendLog(msg protocol.Message) {
+	c.mu.RLock()
+	cc := c.cc
+	c.mu.RUnlock()
+	if cc == nil {
+		return
+	}
+	cc.sendLog(msg)
 }
 
 // pushReport 立即上报本地规则与运行状态（本地规则变更后触发）

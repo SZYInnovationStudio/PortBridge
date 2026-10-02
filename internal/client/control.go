@@ -34,6 +34,7 @@ type controlConn struct {
 	cli       *Client
 	conn      *websocket.Conn
 	sendCh    chan protocol.Message
+	logCh     chan protocol.Message
 	done      chan struct{}
 	closeOnce sync.Once
 }
@@ -46,6 +47,16 @@ func (cc *controlConn) send(msg protocol.Message) bool {
 		return false
 	default:
 		return false
+	}
+}
+
+// sendLog 最佳努力发送日志类消息（连接记录上报等）：队列满时直接丢弃，
+// 避免日志流量挤占 sendCh 中的控制消息（心跳、对账等）。
+func (cc *controlConn) sendLog(msg protocol.Message) {
+	select {
+	case cc.logCh <- msg:
+	case <-cc.done:
+	default:
 	}
 }
 
@@ -142,6 +153,7 @@ func (c *Client) runControlOnce(ctx context.Context) error {
 	cc := &controlConn{
 		cli: c, conn: conn,
 		sendCh: make(chan protocol.Message, 256),
+		logCh:  make(chan protocol.Message, 512),
 		done:   make(chan struct{}),
 	}
 	defer cc.close()
@@ -160,6 +172,9 @@ func (c *Client) runControlOnce(ctx context.Context) error {
 	// 登录成功后立即全量上报一次本地规则
 	cc.send(c.proxyReportMsg())
 	cc.send(c.statusReportMsg())
+
+	// 登录成功后做一次连接记录镜像对账（mirror 模式）
+	c.pullConnLogs()
 
 	return c.controlReadLoop(cc)
 }
@@ -185,20 +200,40 @@ func (c *Client) dataAddrLocked() string {
 	return c.dataAddr
 }
 
-// controlWriter 单写协程，串行发送控制消息
+// controlWriter 单写协程，串行发送控制消息；优先发送 sendCh，空闲时才发送 logCh 中的日志消息
 func (c *Client) controlWriter(cc *controlConn) {
 	for {
 		select {
 		case <-cc.done:
 			return
 		case msg := <-cc.sendCh:
-			_ = cc.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := cc.conn.WriteJSON(msg); err != nil {
-				cc.close()
+			if !c.writeControlMsg(cc, msg) {
+				return
+			}
+		default:
+		}
+		select {
+		case <-cc.done:
+			return
+		case msg := <-cc.sendCh:
+			if !c.writeControlMsg(cc, msg) {
+				return
+			}
+		case msg := <-cc.logCh:
+			if !c.writeControlMsg(cc, msg) {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) writeControlMsg(cc *controlConn, msg protocol.Message) bool {
+	_ = cc.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := cc.conn.WriteJSON(msg); err != nil {
+		cc.close()
+		return false
+	}
+	return true
 }
 
 // controlHeartbeat 周期性发送心跳
@@ -267,12 +302,19 @@ func (c *Client) dispatch(cc *controlConn, msg protocol.Message) {
 		}
 		c.applySync(report)
 
-	case protocol.MsgProxyCreate, protocol.MsgProxyUpdate, protocol.MsgProxyDelete:
+	case protocol.MsgProxyCreate, protocol.MsgProxyUpdate:
 		spec, err := protocol.Decode[protocol.ProxySpec](msg)
 		if err != nil {
 			return
 		}
-		c.applySync(protocol.ProxyReport{Proxies: []protocol.ProxySpec{spec}})
+		c.applyProxySpec(spec)
+
+	case protocol.MsgProxyDelete:
+		spec, err := protocol.Decode[protocol.ProxySpec](msg)
+		if err != nil {
+			return
+		}
+		c.removeLocalProxy(spec.Name)
 
 	case protocol.MsgProxyAck:
 		ack, err := protocol.Decode[protocol.ProxyAck](msg)
@@ -286,6 +328,18 @@ func (c *Client) dispatch(cc *controlConn, msg protocol.Message) {
 			return
 		}
 		go c.serveReverse(req)
+
+	case protocol.MsgConnLogEvent:
+		go c.handleConnLogEvent(msg)
+
+	case protocol.MsgConnLogSync:
+		go c.handleConnLogSync(msg)
+
+	case protocol.MsgConnLogClear:
+		go c.handleConnLogClear(msg)
+
+	case protocol.MsgConnLogResp:
+		go c.handleConnLogResp(msg)
 
 	case protocol.MsgError:
 		em, err := protocol.Decode[protocol.ErrorMsg](msg)

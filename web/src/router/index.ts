@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '规则管理', icon: 'Share' },
       },
       {
+        path: 'conn-logs',
+        name: 'conn-logs',
+        component: () => import('@/views/ConnLogsView.vue'),
+        meta: { title: '连接记录', icon: 'Link' },
+      },
+      {
         path: 'logs',
         name: 'logs',
         component: () => import('@/views/LogsView.vue'),

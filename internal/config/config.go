@@ -84,11 +84,14 @@ func (c *Config) applyDefaults() {
 	if c.HeartbeatSec <= 0 {
 		c.HeartbeatSec = 10
 	}
-	if c.ProxyPortMin == 0 {
-		c.ProxyPortMin = 6000
+	if c.ProxyPortMin <= 0 {
+		c.ProxyPortMin = 1
 	}
-	if c.ProxyPortMax == 0 {
-		c.ProxyPortMax = 7000
+	if c.ProxyPortMax <= 0 || c.ProxyPortMax > 65535 {
+		c.ProxyPortMax = 65535
+	}
+	if c.ProxyPortMin > c.ProxyPortMax {
+		c.ProxyPortMin, c.ProxyPortMax = 1, 65535
 	}
 	if c.WebDistPath == "" {
 		c.WebDistPath = "web/dist"

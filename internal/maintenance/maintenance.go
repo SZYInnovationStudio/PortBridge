@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"portbridge/internal/connlog"
 	"portbridge/internal/loghub"
 	"portbridge/internal/model"
 )
@@ -56,6 +57,11 @@ func RunCleanup(db *gorm.DB) {
 	trafficCutoff := time.Now().AddDate(0, 0, -trafficRetentionDays)
 	if err := db.Where("bucket_at < ?", trafficCutoff).Delete(&model.TrafficStat{}).Error; err != nil {
 		log.Printf("[maintenance] 清理流量明细失败: %v", err)
+	}
+
+	// 连接记录不做按天清理（由管理员手动清除），仅按条数上限裁剪，防止磁盘被撑爆
+	if err := connlog.Trim(db, connlog.MaxRecords); err != nil {
+		log.Printf("[maintenance] 裁剪连接记录失败: %v", err)
 	}
 
 	log.Printf("[maintenance] 每日清理完成：内存日志缓冲已重置，过期审计日志(%d 天)与流量明细(%d 天)已删除",

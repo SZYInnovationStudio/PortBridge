@@ -143,6 +143,37 @@ export interface LogEntry {
   msg: string
 }
 
+export type ConnLogMode = 'mirror' | 'remote'
+export type ConnLogBackend = 'server' | 'local'
+
+/** 连接记录（时间戳为 Unix 毫秒） */
+export interface ConnLogItem {
+  id: number
+  session_id: string
+  proxy_name: string
+  node_name: string
+  type: ProxyType
+  direction: ProxyDirection
+  source_ip: string
+  source_port: number
+  target: string
+  started_at: number
+  ended_at: number
+  duration_ms: number
+  bytes_in: number
+  bytes_out: number
+  status: 'active' | 'closed'
+}
+
+export interface ConnLogListResult {
+  items: ConnLogItem[]
+  total: number
+  page: number
+  page_size: number
+  mode: ConnLogMode
+  backend: ConnLogBackend
+}
+
 export interface PortCheckResult {
   port: number
   type: string

@@ -58,7 +58,8 @@ func (s *Server) handleAgentControl(c *gin.Context) {
 	agent := &Agent{
 		NodeName: req.NodeName, RunID: req.RunID, SessionKey: sessionKey,
 		Version: req.Version, OS: req.OS, Arch: req.Arch, RemoteIP: ip,
-		conn: conn, sendCh: make(chan protocol.Message, 256), done: make(chan struct{}),
+		conn: conn, sendCh: make(chan protocol.Message, 256),
+		logCh: make(chan protocol.Message, 512), done: make(chan struct{}),
 	}
 	agent.touch()
 	s.hub.register(agent)
@@ -116,20 +117,40 @@ func (s *Server) onAgentOnline(a *Agent, node *model.Node) {
 	go s.pushNodeSync(a.NodeName)
 }
 
-// agentWriter 单写协程，串行发送控制消息
+// agentWriter 单写协程，串行发送控制消息；优先发送 sendCh，空闲时才发送 logCh 中的日志消息
 func (s *Server) agentWriter(a *Agent) {
 	for {
 		select {
 		case <-a.done:
 			return
 		case msg := <-a.sendCh:
-			_ = a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := a.conn.WriteJSON(msg); err != nil {
-				a.close()
+			if !s.writeAgentMsg(a, msg) {
+				return
+			}
+		default:
+		}
+		select {
+		case <-a.done:
+			return
+		case msg := <-a.sendCh:
+			if !s.writeAgentMsg(a, msg) {
+				return
+			}
+		case msg := <-a.logCh:
+			if !s.writeAgentMsg(a, msg) {
 				return
 			}
 		}
 	}
+}
+
+func (s *Server) writeAgentMsg(a *Agent, msg protocol.Message) bool {
+	_ = a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := a.conn.WriteJSON(msg); err != nil {
+		a.close()
+		return false
+	}
+	return true
 }
 
 // agentHeartbeat 周期性发送心跳，维持连接并测量延迟

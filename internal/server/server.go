@@ -13,6 +13,7 @@ import (
 
 	"portbridge/internal/auth"
 	"portbridge/internal/config"
+	"portbridge/internal/connlog"
 	"portbridge/internal/eventhub"
 	"portbridge/internal/loghub"
 	"portbridge/internal/maintenance"
@@ -48,6 +49,9 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 func (s *Server) Run(ctx context.Context) {
 	gin.SetMode(gin.ReleaseMode)
 	s.restoreProxies()
+	if err := connlog.CloseActive(s.db); err != nil {
+		log.Printf("[server] 清理遗留连接记录失败: %v", err)
+	}
 
 	go func() {
 		if err := s.runDataListener(ctx); err != nil {
@@ -56,6 +60,7 @@ func (s *Server) Run(ctx context.Context) {
 	}()
 	go s.hub.offlineWatcher(ctx)
 	go s.trafficFlusher(ctx)
+	go s.connLogTrimLoop(ctx.Done())
 	maintenance.Start(s.db, ctx.Done())
 
 	srv := &http.Server{Addr: s.cfg.AdminAddr, Handler: s.router}
@@ -135,13 +140,19 @@ func (s *Server) trafficFlusher(ctx context.Context) {
 			for _, name := range s.pm.RunningNames() {
 				c := s.pm.Counter(name)
 				if c == nil {
+					// 规则已停用/移除，遗忘旧计数快照，避免重新启用后产生负增量
+					delete(last, name)
 					continue
 				}
-				in, out, conns, total := c.Snapshot()
+				in, out, _, total := c.Snapshot()
 				prev := last[name]
 				dIn, dOut, dConns := in-prev.in, out-prev.out, total-prev.total
+				// 计数器在规则重建（如自动停用后重新启用）时会归零，按重置处理
+				if dIn < 0 || dOut < 0 || dConns < 0 {
+					dIn, dOut, dConns = in, out, total
+				}
 				last[name] = flushState{in: in, out: out, total: total}
-				if dIn == 0 && dOut == 0 {
+				if dIn == 0 && dOut == 0 && dConns == 0 {
 					continue
 				}
 
@@ -173,7 +184,6 @@ func (s *Server) trafficFlusher(ctx context.Context) {
 					loghub.Default.Publish("warn", fmt.Sprintf("规则 %s 已达流量上限，自动停用", name))
 					s.disableProxy(&p, "traffic_limit")
 				}
-				_ = conns
 			}
 		}
 	}

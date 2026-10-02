@@ -133,6 +133,10 @@ func (m *ruleManager) Apply(p *model.Proxy) error {
 		m.SetError(p.Name, err.Error())
 		return err
 	}
+	// forward 方向：真实访客地址只在本地监听侧可见，登记会话记录回调并上报中转端
+	ll.SetSessionHook(func(sessionID string, peer net.Addr) func(int64, int64) {
+		return m.cli.forwardConnLog(meta, sessionID, peer)
+	})
 	m.mu.Lock()
 	m.entries[p.Name] = ll
 	m.mu.Unlock()
@@ -215,43 +219,13 @@ func (m *ruleManager) Snapshot() map[string]RuntimeInfo {
 // applySync 用中转端下发的全量规则收敛本地状态（LWW）
 func (c *Client) applySync(report protocol.ProxyReport) {
 	seen := make(map[string]bool, len(report.Proxies))
-
 	for i := range report.Proxies {
 		spec := report.Proxies[i]
 		if spec.Name == "" {
 			continue
 		}
 		seen[spec.Name] = true
-
-		var p model.Proxy
-		err := c.db.Where("name = ?", spec.Name).First(&p).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			np := apiutil.SpecToProxy(spec, c.cfg.NodeName)
-			if np.Origin == "" {
-				np.Origin = model.OriginServer
-			}
-			if spec.UpdatedAt > 0 {
-				np.UpdatedAt = time.UnixMilli(spec.UpdatedAt)
-				np.CreatedAt = np.UpdatedAt
-			}
-			if err := c.db.Create(np).Error; err != nil {
-				loghub.Default.Publish("warn", fmt.Sprintf("同步规则 %s 落库失败: %v", spec.Name, err))
-				continue
-			}
-			c.rules.ensure(np)
-			continue
-		}
-		if err != nil {
-			continue
-		}
-		// LWW：以配置版本号为准（UpdatedAt 会被 GORM 在每次保存时刷新，不能用于比较）
-		if spec.Version > p.Version {
-			apiutil.ApplySpecToProxy(spec, &p)
-			if err := c.db.Save(&p).Error; err != nil {
-				continue
-			}
-		}
-		c.rules.ensure(&p)
+		c.applyProxySpec(spec)
 	}
 
 	// 中转端下发的规则若已不在同步列表中，删除本地副本
@@ -265,4 +239,53 @@ func (c *Client) applySync(report protocol.ProxyReport) {
 			}
 		}
 	}
+}
+
+// applyProxySpec 应用中转端下发的一条规则到本地（LWW），不影响其它规则
+func (c *Client) applyProxySpec(spec protocol.ProxySpec) {
+	if spec.Name == "" {
+		return
+	}
+	var p model.Proxy
+	err := c.db.Where("name = ?", spec.Name).First(&p).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		np := apiutil.SpecToProxy(spec, c.cfg.NodeName)
+		if np.Origin == "" {
+			np.Origin = model.OriginServer
+		}
+		if spec.UpdatedAt > 0 {
+			np.UpdatedAt = time.UnixMilli(spec.UpdatedAt)
+			np.CreatedAt = np.UpdatedAt
+		}
+		if err := c.db.Create(np).Error; err != nil {
+			loghub.Default.Publish("warn", fmt.Sprintf("同步规则 %s 落库失败: %v", spec.Name, err))
+			return
+		}
+		c.rules.ensure(np)
+		return
+	}
+	if err != nil {
+		return
+	}
+	// LWW：以配置版本号为准（UpdatedAt 会被 GORM 在每次保存时刷新，不能用于比较）
+	if spec.Version > p.Version {
+		apiutil.ApplySpecToProxy(spec, &p)
+		if err := c.db.Save(&p).Error; err != nil {
+			return
+		}
+	}
+	c.rules.ensure(&p)
+}
+
+// removeLocalProxy 删除一条中转端下发的本地规则副本
+func (c *Client) removeLocalProxy(name string) {
+	if name == "" {
+		return
+	}
+	res := c.db.Where("name = ? AND origin = ?", name, model.OriginServer).Delete(&model.Proxy{})
+	if res.Error != nil || res.RowsAffected == 0 {
+		return
+	}
+	c.rules.Remove(name)
+	c.events.Broadcast("proxy_change", map[string]any{"name": name, "deleted": true})
 }

@@ -25,6 +25,7 @@ type Agent struct {
 
 	conn      *websocket.Conn
 	sendCh    chan protocol.Message
+	logCh     chan protocol.Message
 	done      chan struct{}
 	closeOnce sync.Once
 
@@ -42,6 +43,16 @@ func (a *Agent) send(msg protocol.Message) bool {
 	default:
 		// 发送队列满，视为连接异常
 		return false
+	}
+}
+
+// sendLog 最佳努力发送日志类消息（连接记录镜像等）：队列满时直接丢弃，
+// 避免日志流量挤占 sendCh 中的控制消息（心跳、工作连接等）。
+func (a *Agent) sendLog(msg protocol.Message) {
+	select {
+	case a.logCh <- msg:
+	case <-a.done:
+	default:
 	}
 }
 
@@ -149,6 +160,15 @@ func (h *AgentHub) Send(nodeName string, msg protocol.Message) error {
 	return nil
 }
 
+// SendLog 向指定节点发送日志类消息（最佳努力，节点离线或队列满时静默丢弃）
+func (h *AgentHub) SendLog(nodeName string, msg protocol.Message) {
+	a := h.Get(nodeName)
+	if a == nil {
+		return
+	}
+	a.sendLog(msg)
+}
+
 // SendWorkConn 请求某规则对应的节点建立数据连接
 func (h *AgentHub) SendWorkConn(proxyName, sessionID, typ, mode string) error {
 	meta := h.srv.pm.Meta(proxyName)
@@ -229,6 +249,18 @@ func (h *AgentHub) dispatch(a *Agent, msg protocol.Message) {
 				a.Version = report.Version
 			}
 		}
+
+	case protocol.MsgConnLogReport:
+		go h.srv.handleConnLogReport(a, msg)
+
+	case protocol.MsgConnLogPull:
+		go h.srv.handleConnLogPull(a, msg)
+
+	case protocol.MsgConnLogQuery:
+		go h.srv.handleConnLogQuery(a, msg)
+
+	case protocol.MsgConnLogClear:
+		go h.srv.handleConnLogClear(a, msg)
 	}
 }
 

@@ -64,7 +64,7 @@
 
       <el-main class="main">
         <router-view v-slot="{ Component }">
-          <keep-alive :include="['ProxiesView', 'NodesView', 'LogsView']">
+          <keep-alive :include="['ProxiesView', 'NodesView', 'LogsView', 'ConnLogsView']">
             <component :is="Component" />
           </keep-alive>
         </router-view>
@@ -113,6 +113,7 @@ const menus = computed(() => {
     { path: '/overview', title: '概览', icon: 'Odometer', role: '' },
     { path: '/nodes', title: '节点管理', icon: 'Connection', role: 'server' },
     { path: '/proxies', title: '规则管理', icon: 'Share', role: '' },
+    { path: '/conn-logs', title: '连接记录', icon: 'Link', role: '' },
     { path: '/logs', title: '实时日志', icon: 'Document', role: '' },
     { path: '/settings', title: '系统设置', icon: 'Setting', role: '' },
   ]

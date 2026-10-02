@@ -103,6 +103,10 @@ func (s *Server) handleImportConfig(c *gin.Context) {
 			skipped++
 			continue
 		}
+		if s.checkProxyPort(src.RemotePort) != nil {
+			skipped++
+			continue
+		}
 		if src.NodeName == "" || !nodeSet[src.NodeName] {
 			skipped++
 			continue

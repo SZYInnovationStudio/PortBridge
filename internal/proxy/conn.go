@@ -40,27 +40,48 @@ func ReadFrame(r io.Reader, buf []byte) (int, error) {
 	return n, nil
 }
 
-// countingConn 包装 net.Conn，统计流量并可选限速
+// countingConn 包装 net.Conn，统计流量并可选限速。
+// mirror 非空时，同一份字节数会同时计入 mirror（用于单条连接的连接记录统计）。
 type countingConn struct {
 	net.Conn
 	counter *Counter
+	mirror  *Counter
 	limiter *rate.Limiter
 	burst   int
 }
 
 // WrapConn 包装连接
 func WrapConn(c net.Conn, counter *Counter, kbLimit int) net.Conn {
+	return WrapConnDual(c, counter, nil, kbLimit)
+}
+
+// WrapConnDual 包装连接，同时把字节数计入 counter 与 mirror
+func WrapConnDual(c net.Conn, counter, mirror *Counter, kbLimit int) net.Conn {
 	limiter, burst := NewLimiterKB(kbLimit)
 	if counter == nil {
 		counter = &Counter{}
 	}
-	return &countingConn{Conn: c, counter: counter, limiter: limiter, burst: burst}
+	return &countingConn{Conn: c, counter: counter, mirror: mirror, limiter: limiter, burst: burst}
+}
+
+func (c *countingConn) addIn(n int64) {
+	c.counter.AddIn(n)
+	if c.mirror != nil {
+		c.mirror.AddIn(n)
+	}
+}
+
+func (c *countingConn) addOut(n int64) {
+	c.counter.AddOut(n)
+	if c.mirror != nil {
+		c.mirror.AddOut(n)
+	}
 }
 
 func (c *countingConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 {
-		c.counter.AddIn(int64(n))
+		c.addIn(int64(n))
 	}
 	return n, err
 }
@@ -69,7 +90,7 @@ func (c *countingConn) Write(p []byte) (int, error) {
 	if c.limiter == nil {
 		n, err := c.Conn.Write(p)
 		if n > 0 {
-			c.counter.AddOut(int64(n))
+			c.addOut(int64(n))
 		}
 		return n, err
 	}
@@ -84,7 +105,7 @@ func (c *countingConn) Write(p []byte) (int, error) {
 		}
 		n, err := c.Conn.Write(p[:chunk])
 		total += n
-		c.counter.AddOut(int64(n))
+		c.addOut(int64(n))
 		if err != nil {
 			return total, err
 		}

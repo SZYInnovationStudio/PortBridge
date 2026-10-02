@@ -54,9 +54,9 @@ ip_whitelist: []
 # ---------- 运行参数 ----------
 # 心跳间隔（秒）
 heartbeat_sec: 10
-# 动态分配转发端口时可用的端口范围
-proxy_port_min: 6000
-proxy_port_max: 7000
+# 允许用户指定的代理监听端口范围（1-65535 表示不限制；可按需收窄，如 6000-7000）
+proxy_port_min: 1
+proxy_port_max: 65535
 # 前端静态资源目录（相对路径相对于工作目录）
 web_dist_path: "web/dist"
 # 日志级别：debug | info | warn | error

@@ -58,6 +58,9 @@ func (c *Client) buildRouter() *gin.Engine {
 		a.GET("/ports/check", c.handleCheckPort)
 
 		a.GET("/logs", c.handleLogs)
+
+		a.GET("/conn-logs", c.handleListConnLogs)
+
 		a.GET("/settings", c.handleGetSettings)
 		a.GET("/config/export", c.handleExportConfig)
 
@@ -69,6 +72,8 @@ func (c *Client) buildRouter() *gin.Engine {
 			adm.PUT("/proxies/:id", c.handleUpdateProxy)
 			adm.DELETE("/proxies/:id", c.handleDeleteProxy)
 			adm.POST("/proxies/:id/toggle", c.handleToggleProxy)
+
+			adm.DELETE("/conn-logs", c.handleClearConnLogs)
 
 			adm.PUT("/settings", c.handleUpdateSettings)
 			adm.POST("/config/import", c.handleImportConfig)

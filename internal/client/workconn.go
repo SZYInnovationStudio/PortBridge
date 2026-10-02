@@ -90,6 +90,6 @@ func (c *Client) serveReverseUDP(wc net.Conn, meta *clientMeta) {
 		return
 	}
 	meta.counter.IncConn()
-	proxy.RelayUDP(wc, tc, meta.counter)
+	proxy.RelayUDP(wc, tc, meta.counter, nil)
 	meta.counter.DecConn()
 }

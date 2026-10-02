@@ -96,10 +96,12 @@ func (e *proxyEntry) handleTCPConn(pm *ProxyManager, c net.Conn) {
 			_ = c.Close()
 			return
 		}
+		rec := pm.srv.connLogBegin(&e.meta, sessionID, c.RemoteAddr())
 		e.meta.counter.IncConn()
 		loghub.Default.Publish("debug", fmt.Sprintf("规则 %s 建立连接 <- %s", e.meta.Name, c.RemoteAddr()))
-		proxy.Bridge(proxy.WrapConn(c, e.meta.counter, e.meta.RateLimitKB), wc)
+		proxy.Bridge(proxy.WrapConnDual(c, e.meta.counter, rec.counter(), e.meta.RateLimitKB), wc)
 		e.meta.counter.DecConn()
+		rec.finish()
 	case <-time.After(15 * time.Second):
 		loghub.Default.Publish("warn", fmt.Sprintf("规则 %s 等待数据连接超时", e.meta.Name))
 		_ = c.Close()
@@ -164,9 +166,11 @@ func (e *proxyEntry) setupFlow(pm *ProxyManager, key string, f *proxy.UDPFlow) {
 			e.removeFlow(key, f)
 			return
 		}
+		rec := pm.srv.connLogBegin(&e.meta, sessionID, f.Peer())
 		e.meta.counter.IncConn()
-		proxy.RelayUDP(wc, f, e.meta.counter)
+		proxy.RelayUDP(wc, f, e.meta.counter, rec.counter())
 		e.meta.counter.DecConn()
+		rec.finish()
 	case <-time.After(15 * time.Second):
 	case <-e.stopCh:
 	}
@@ -459,7 +463,7 @@ func (pm *ProxyManager) ServeForwardConn(conn net.Conn, hs protocol.WorkHandshak
 			return
 		}
 		meta.counter.IncConn()
-		proxy.RelayUDP(conn, tc, meta.counter)
+		proxy.RelayUDP(conn, tc, meta.counter, nil)
 		meta.counter.DecConn()
 		return
 	}
