@@ -11,7 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"portbridge/internal/auth"
 	"portbridge/internal/config"
+	"portbridge/internal/eventhub"
 	"portbridge/internal/loghub"
 	"portbridge/internal/model"
 	"portbridge/internal/version"
@@ -23,18 +25,20 @@ type Server struct {
 	db     *gorm.DB
 	hub    *AgentHub
 	pm     *ProxyManager
-	events *UIHub
+	events *eventhub.Hub
 	start  time.Time
 	router *gin.Engine
 }
 
 // New 创建中转端实例
 func New(cfg *config.Config, db *gorm.DB) *Server {
+	auth.Init(cfg.JWTSecret)
 	s := &Server{cfg: cfg, db: db, start: time.Now()}
-	s.events = newUIHub()
+	s.events = eventhub.New()
 	s.hub = newAgentHub(s)
 	s.pm = newProxyManager(s)
 	s.router = s.buildRouter()
+	s.ensureAdmin()
 	return s
 }
 

@@ -11,7 +11,6 @@ import (
 	"portbridge/internal/loghub"
 	"portbridge/internal/model"
 	"portbridge/internal/protocol"
-	"portbridge/internal/util"
 )
 
 // Agent 一条在线的原站端控制连接
@@ -205,7 +204,7 @@ func (h *AgentHub) dispatch(a *Agent, msg protocol.Message) {
 		if err != nil {
 			return
 		}
-		h.srv.handleProxyReport(a, &report)
+		h.srv.handleProxyReport(a.NodeName, &report)
 
 	case protocol.MsgProxyCreate, protocol.MsgProxyUpdate, protocol.MsgProxyDelete:
 		spec, err := protocol.Decode[protocol.ProxySpec](msg)
@@ -263,5 +262,4 @@ func (s *Server) onAgentOffline(a *Agent) {
 	})
 	s.events.Broadcast("node_status", map[string]any{"name": a.NodeName, "online": false})
 	loghub.Default.Publish("warn", "节点已离线: "+a.NodeName)
-	_ = util.RemoteIP // 保持 util 引用（复用其它工具函数时的一致性）
 }
