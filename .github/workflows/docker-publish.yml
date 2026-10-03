@@ -25,6 +25,11 @@ on:
 env:
   IMAGE_NAME: portbridge
 
+# 同一分支/标签的构建排队执行：新推送会取消仍在进行的旧构建
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
