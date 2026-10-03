@@ -107,6 +107,11 @@
             <span class="mono">{{ formatUTC8(row.started_at) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="结束时间 (UTC+8)" width="170">
+          <template #default="{ row }">
+            <span class="mono">{{ formatUTC8(row.ended_at) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="时长" width="100">
           <template #default="{ row }">{{ formatDuration(row.duration_ms / 1000) }}</template>
         </el-table-column>
