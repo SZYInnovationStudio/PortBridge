@@ -1,9 +1,10 @@
 name: Build and Publish Docker Image
 
 # 触发方式：
-#   1) 推送 main 分支     → 自动发布，版本号自动递增（0.1.<提交数>）+ 更新 latest；
-#   2) 推送 v* 标签（如 v0.2.0） → 按语义化版本发布（v0.2.0 / 0.2.0 / 0.2）+ 更新 latest；
-#   3) Actions 页面手动触发，可指定版本号（留空则自动生成）。
+#   1) 推送 main 分支     → 自动发布，版本号按提交数递增（三段式，每段一位数，满 10 进 1）+
+#                          更新 latest；
+#   2) 推送 v* 标签（如 v1.3.0） → 取标签的纯版本号发布（1.3.0）+ 更新 latest；
+#   3) Actions 页面手动触发，可指定版本号（留空则按提交数自动生成）。
 #
 # 使用前需在仓库 Settings → Secrets and variables → Actions 中配置：
 #   DOCKERHUB_USERNAME : Docker Hub 用户名
@@ -18,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "镜像版本标签（留空则自动生成 0.1.<提交数>）"
+        description: "镜像版本标签（留空则按提交数自动生成，如 1.2.0）"
         required: false
         default: ""
 
@@ -45,16 +46,25 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
+          # 版本号规则：三段式十进制计数器，每段一位数（0-9），满 10 向左进 1
+          #   1.2.9 → 1.3.0，1.9.9 → 2.0.0
+          # 基准：提交数首次达到 BASE_COUNT 的那次构建 = 起始版本 1.2.0，之后每次提交 +1
+          BASE_COUNT=18
+          BASE_VERSION=120   # 1.2.0 压成三位数：major*100 + minor*10 + patch
+
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            # 手动打的语义化标签，如 v0.2.0
-            echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            # 手动打的标签，只取纯版本号（去掉 v 前缀），如 v1.3.0 → 1.3.0
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.inputs.version }}" ]; then
             # 手动触发并指定了版本号
             echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            # 自动生成：0.1.<提交总数>，每次提交自动 +1
             COUNT=$(git rev-list --count HEAD)
-            echo "value=0.1.${COUNT}" >> "$GITHUB_OUTPUT"
+            N=$((BASE_VERSION + COUNT - BASE_COUNT))
+            PATCH=$((N % 10))
+            MINOR=$((N / 10 % 10))
+            MAJOR=$((N / 100))
+            echo "value=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up QEMU
@@ -74,12 +84,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          # 标签只用纯版本号 + latest（不再生成 v 前缀或 1.0 这类缩写标签）
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.ver.outputs.value }}
             type=raw,value=latest
-            type=raw,value=${{ steps.ver.outputs.value }},enable=${{ github.ref_type != 'tag' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
