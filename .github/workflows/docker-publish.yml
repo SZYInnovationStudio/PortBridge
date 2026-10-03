@@ -6,6 +6,10 @@ name: Build and Publish Docker Image
 #   2) 推送 v* 标签（如 v1.3.0） → 取标签的纯版本号发布（1.3.0）+ 更新 latest；
 #   3) Actions 页面手动触发，可指定版本号（留空则按提交数自动生成）。
 #
+# 重要：本流程只发布镜像，绝不向仓库写任何内容。
+#   版本号在构建期通过 build-arg 注入镜像，不落盘、不提交回仓库，
+#   因此不会产生 github-actions[bot] 的「版本号更新」类自动提交。
+#
 # 使用前需在仓库 Settings → Secrets and variables → Actions 中配置：
 #   DOCKERHUB_USERNAME : Docker Hub 用户名
 #   DOCKERHUB_TOKEN    : Docker Hub Access Token（非登录密码）
@@ -34,6 +38,7 @@ concurrency:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # 只读权限：从权限层面禁止本流程向仓库写入/提交（不要改成 write）
     permissions:
       contents: read
     steps:
