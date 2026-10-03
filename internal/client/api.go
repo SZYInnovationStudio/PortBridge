@@ -106,6 +106,8 @@ func (c *Client) mountStatic(r *gin.Engine) {
 			ctx.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "接口不存在"})
 			return
 		}
+		// index.html 禁用缓存：避免更新镜像后浏览器仍用旧入口，指向已失效的旧 JS
+		ctx.Header("Cache-Control", "no-cache, must-revalidate")
 		ctx.File(index)
 	})
 }
